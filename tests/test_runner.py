@@ -2,9 +2,11 @@ import io
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -191,6 +193,16 @@ class WorktreeTests(RunnerCase):
         self.assertEqual(self.meta(second)["status"], "no_changes")  # earlier edits are not new changes
         self.assertEqual(len(list((state.CACHE_DIR() / "worktrees").iterdir())), 1)
 
+    def test_resume_editing_an_untracked_file_is_not_no_changes(self):
+        os.environ["STUB_MODE"] = "write"
+        repo = self.repo()
+        first = self.start(mode="write", cwd=repo, worktree=True)
+        os.environ["STUB_MODE"] = "write2"  # rewrites the file job 1 created (still untracked)
+        second = self.start(mode="write", cwd=repo, worktree=True, resume=first)
+        wt = state.CACHE_DIR() / "worktrees" / first
+        self.assertEqual((wt / "stub_output.txt").read_text(), "changed again")
+        self.assertEqual(self.meta(second)["status"], "done")
+
     def test_resume_of_unknown_worktree_fails(self):
         self.assertIn("unknown worktree", self.die(2, mode="write", worktree=True, resume="nope"))
 
@@ -256,6 +268,32 @@ class ExecTests(RunnerCase):
         jid = self.start(timeout_s=1)
         self.assertLess(time.time() - t, 15)
         self.assertEqual((self.meta(jid)["status"], self.meta(jid)["rc"]), ("failed", 124))
+
+    def test_interrupt_kills_the_foreground_child(self):
+        slow = self.tmp / "bin"
+        slow.mkdir()
+        pidfile = self.tmp / "child.pid"
+        (slow / "kimi").write_text(f"#!/bin/sh\necho $$ > {pidfile}\nsleep 30\n")
+        (slow / "kimi").chmod(0o755)
+        os.environ["PATH"] = f"{slow}{os.pathsep}{os.environ['PATH']}"
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            pidfile.unlink(missing_ok=True)
+            timer = threading.Timer(1.5, os.kill, (os.getpid(), sig))
+            timer.start()
+            self.addCleanup(timer.cancel)
+            with self.assertRaises(KeyboardInterrupt):
+                self.start()
+            pgid = int(pidfile.read_text())
+            for _ in range(50):  # group gone (reaped) within a moment
+                try:
+                    os.killpg(pgid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.1)
+            else:
+                self.fail(f"child group survived {sig.name}")
+            last = max((state.CACHE_DIR() / "jobs").iterdir(), key=lambda d: d.stat().st_mtime_ns)
+            self.assertEqual(json.loads((last / "meta.json").read_text())["status"], "failed")
 
     def test_answer_extraction(self):
         os.environ["STUB_MODE"] = "json"

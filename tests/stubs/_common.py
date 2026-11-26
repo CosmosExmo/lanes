@@ -42,9 +42,9 @@ def model_call(out_path=None):
         key = {"cursor-agent": "cursor"}.get(NAME, NAME)
         sys.stderr.write(json.load(open(ROOT / "adapters.json"))[key]["limit_error_patterns"][0] + "\n")
         sys.exit(1)
-    if has("write"):
-        Path("stub_output.txt").write_text("changed")
-    if has("write") or has("nowrite") or has("json"):
+    if has("write") or has("write2"):
+        Path("stub_output.txt").write_text("changed again" if has("write2") else "changed")
+    if has("write") or has("write2") or has("nowrite") or has("json"):
         if out_path:
             Path(out_path).write_text("ANSWER")
         print(json.dumps({"result": "ANSWER", "response": "ANSWER"}) if has("json") else "done")

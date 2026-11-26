@@ -177,14 +177,41 @@ def _finish(m, status, rc, delta=None, failure=None):
 # ---- execution ---------------------------------------------------------------------------------
 
 def _snapshot(wt):
+    """Fingerprint of a worktree: HEAD, status, tracked diff and the content of untracked files
+    (`git diff HEAD` ignores those, and a resumed job usually edits what job 1 created)."""
     g = lambda *a: discover.run_cmd(["git", "-C", str(wt), *a], 60).stdout
-    return hashlib.sha1("\0".join((g("rev-parse", "HEAD"), g("status", "--porcelain"),
-                                   g("diff", "HEAD"))).encode()).hexdigest()
+    h = hashlib.sha1()
+    for part in (g("rev-parse", "HEAD"), g("status", "--porcelain"), g("diff", "HEAD")):
+        h.update(part.encode(errors="replace") + b"\0")
+    for name in sorted(g("ls-files", "-o", "--exclude-standard", "-z").split("\0")):
+        f = Path(wt) / name
+        try:
+            data = os.readlink(f).encode() if f.is_symlink() else f.read_bytes() if f.is_file() else b""
+        except OSError:
+            data = b""
+        h.update(name.encode(errors="replace") + b"\0" + data + b"\0")
+    return h.hexdigest()
+
+
+def _kill(p):
+    try:
+        os.killpg(p.pid, signal.SIGKILL)  # the child runs in its own session; the terminal never signals it
+    except OSError:
+        pass
+    p.wait()
+
+
+def _on_term(*_):
+    raise KeyboardInterrupt
 
 
 def _spawn(spec, m, env, timeout_s):
     jd = _jobs() / m["job"]
     fds = [os.open(jd / n, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600) for n in ("stdout.txt", "stderr.txt")]
+    try:
+        old = signal.signal(signal.SIGTERM, _on_term)  # SIGTERM to lanes behaves like Ctrl-C
+    except ValueError:  # not the main thread
+        old = None
     try:
         with open(spec["stdin"], "rb") as stdin:
             p = subprocess.Popen(spec["argv"], cwd=m["cwd"], env=env, stdin=stdin, stdout=fds[0], stderr=fds[1],
@@ -192,12 +219,16 @@ def _spawn(spec, m, env, timeout_s):
             try:
                 return p.wait(timeout_s)
             except subprocess.TimeoutExpired:
-                os.killpg(p.pid, signal.SIGKILL)
-                p.wait()
+                _kill(p)
                 return 124
+            except BaseException:  # Ctrl-C / SIGTERM: never leave a write-capable CLI running
+                _kill(p)
+                raise
     except OSError:
         return 127  # binary missing / cwd gone
     finally:
+        if old is not None:
+            signal.signal(signal.SIGTERM, old)
         for fd in fds:
             os.close(fd)
 
