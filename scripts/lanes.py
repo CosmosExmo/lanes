@@ -81,11 +81,39 @@ def cmd_run(args):
     ans = state.job_dir(jid) / "out.txt"
     m["answer"] = ans.read_text() if ans.is_file() else ""
     emit(args, m, [f"{jid} {m['status']}"] + ([m["answer"]] if m["answer"] else []))
+    code = verdict([m])
+    if code:
+        raise SystemExit(code)
+
+
+def verdict(ms):
+    """0 all done; 2 still running (timeout); 6 any failed/limit/no_changes. One stderr line per bad job."""
+    code = 0
+    pools = (state.read_inventory(None) or {}).get("pools") or {}
+    for m in ms:
+        st = m.get("status")
+        if st == "done":
+            continue
+        if st == "running":
+            code = code or 2
+            sys.stderr.write(state.redact(f"{m['job']} running (wait timed out)") + "\n")
+            continue
+        line = f"{m.get('job')} {st} {m.get('pool')} {m.get('cli')}"
+        if st == "limit":
+            until = (pools.get(m.get("pool")) or {}).get("exhausted_until")
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until)) if until else "its next reset"
+            line += f"; pool exhausted until {when}; pick the next lane"
+        sys.stderr.write(state.redact(line) + "\n")
+        code = 6
+    return code
 
 
 def cmd_wait(args):
     ms = runner.wait_jobs(args.ids, args.timeout)
     emit(args, ms, [f"{m['job']} {m['status']}" for m in ms])
+    code = verdict(ms)
+    if code:
+        raise SystemExit(code)
 
 
 def cmd_mark(args):
@@ -142,7 +170,9 @@ def cmd_exec(args):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="lanes")
+    p = argparse.ArgumentParser(
+        prog="lanes", epilog="exit codes: 0 ok, 2 usage/environment error or wait timeout, 3 nested, "
+        "4 approval needed, 5 selftest failure, 6 job failed/limit/no_changes")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def add(name, fn, **kw):

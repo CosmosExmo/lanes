@@ -116,6 +116,33 @@ class TestCli(CliCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("own pool", r.stderr)
 
+    def _run_args(self, mode):
+        pf = self.tmp / "p.txt"
+        pf.write_text("hi")
+        return ["run", "--pool", "kimi", "--cli", "kimi", "--model", "kimi-for-coding-highspeed", "--effort",
+                "low", "--mode", "read", "--prompt-file", str(pf)], mode
+
+    def test_foreground_failed_job_exits_6(self):
+        self.inv()
+        args, _ = self._run_args("")
+        r = self.run_cli(*args, STUB_MODE="")
+        self.assertEqual(r.returncode, 6, r.stdout + r.stderr)
+        self.assertRegex(r.stderr, r"\S+ failed kimi kimi")
+        ok = self.run_cli(*args, STUB_MODE="ok")
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+
+    def test_wait_limit_job_exits_6(self):
+        self.inv()
+        args, _ = self._run_args("limit")
+        r = self.run_cli(*args, "--bg", "--json", STUB_MODE="limit")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        jid = json.loads(r.stdout)["job"]
+        w = self.run_cli("wait", jid, "--timeout", "30")
+        self.assertEqual(w.returncode, 6, w.stdout + w.stderr)
+        self.assertIn(f"{jid} limit kimi kimi", w.stderr)
+        self.assertIn("pool exhausted until", w.stderr)
+        self.assertIn("pick the next lane", w.stderr)
+
     def test_mark_rejects_bad_outcome(self):
         self.assertEqual(self.run_cli("mark", "x", "bogus").returncode, 2)
 
