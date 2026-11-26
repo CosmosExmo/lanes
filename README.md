@@ -1,8 +1,22 @@
-<p align="center"><img src="assets/icon.svg" width="96" height="96" alt="lanes icon"></p>
+<p align="center"><img src="assets/icon.png" width="96" height="96" alt="lanes icon"></p>
 
 # lanes
 
 Spread agent work across all your AI subscriptions.
+
+## Install with your agent
+
+Paste this to the AI agent you work with (Claude Code, Codex, agy, Cursor, pi, OpenCode, Kimi, Qwen…). It installs
+`lanes` interactively, checks which of your subscriptions it can use, and asks you before every change:
+
+```text
+Install the "lanes" skill for me from https://github.com/CosmosExmo/lanes (use my existing git/GitHub access).
+Clone it (suggest ~/dev/skills/lanes, ask me first), then read INSTALL.md in the repo and follow it step by step.
+Ask me before every change, explain what you find in plain language, and talk to me in my language.
+```
+
+After that you never need the terminal: ask your agent to "distribute this with lanes", "get this reviewed by another
+provider" or "update lanes".
 
 ## What it is
 
@@ -46,7 +60,7 @@ lanes ledger --since 1d                          # totals
 
 "Verified" means checked live against that version. Other versions may work; `lanes selftest` reports flag drift.
 
-## Install
+## Manual install
 
 ```
 git clone https://github.com/CosmosExmo/lanes.git ~/dev/skills/lanes

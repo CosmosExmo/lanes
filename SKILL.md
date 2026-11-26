@@ -1,6 +1,6 @@
 ---
 name: lanes
-description: Use when delegating work to subagents or other agent CLIs, or when a subscription limit is a concern. Triggers - "lanes"; before spawning ANY subagent, Explore/Plan agent, workflow agent, fork, parallel worker or background job; a Claude, Codex, Gemini/agy or Cursor limit or quota is filling up ("limit", "kota", "quota", "limit doldu", "weekly is at 84%"); "ask Gemini", "ask Codex", "ask Claude", "Gemini'ye sor", "Codex'e sor", "ikinci görüş", "çapraz review", "review this diff"; or the user wants a token-efficient, quota-aware, cheap ("ucuz") workflow, in any harness (Claude Code, Codex, agy, Cursor, pi, OpenCode, Kimi, Qwen).
+description: Use when delegating work to subagents or other agent CLIs, or when a subscription limit is a concern. Triggers - "lanes", "update lanes", "install lanes"; before spawning ANY subagent, Explore/Plan agent, workflow agent, fork, parallel worker or background job; a Claude, Codex, Gemini/agy or Cursor limit or quota is filling up ("limit", "kota", "quota", "limit doldu", "weekly is at 84%"); "ask Gemini", "ask Codex", "ask Claude", "Gemini'ye sor", "Codex'e sor", "ikinci görüş", "çapraz review", "review this diff"; or the user wants a token-efficient, quota-aware, cheap ("ucuz") workflow, in any harness (Claude Code, Codex, agy, Cursor, pi, OpenCode, Kimi, Qwen).
 ---
 
 # Lanes
@@ -51,7 +51,7 @@ over to a different model, so an unset `effort` falls back to that model's defau
 ## Lanes in other pools
 
 Run `lanes` if it is on PATH, otherwise `python3 <skill dir>/scripts/lanes.py`
-(`lanes install --bin-only` puts it on PATH). Python 3, stdlib only.
+(`lanes install --bin-only` puts it on PATH). Python 3, stdlib only. To update: `lanes update`; to install for a new user, follow `INSTALL.md`.
 
 ```
 lanes discover                       # once per session: pools, billing, quota (cached 15 min). No model calls.
