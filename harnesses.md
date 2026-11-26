@@ -1,13 +1,18 @@
-# Harness reference — delegation + per-agent model/effort
+# Harness reference — native subagents, headless lanes, orchestrating
 
-Contents: Claude Code · Codex CLI · OpenCode · Kimi Code · pi · Gemini CLI · Copilot CLI · Verified 2026-11-26 (Task 7)
+Contents: Part 1 native subagent syntax (Claude Code · Codex · OpenCode · Kimi · pi · agy · Gemini CLI · Copilot CLI) ·
+Part 2 headless notes per CLI (what `lanes run` does) · Part 3 orchestrating from each harness
 
-Verified 2026-11-09 against installed binaries/packages (codex 0.166.0, opencode 2.2.5,
-kimi 2.5.2, pi 1.5.0 + pi-subagents 0.86.0, Claude Code 2.1.319) and code.claude.com docs.
-Gemini/Copilot sections are from 2026-08-26 and unverified since. Re-check after a major
-version bump: grep the binary's strings / bundled docs rather than trusting this file.
+Syntax in Part 1 verified 2026-11-09 against codex 0.166.0, opencode 2.2.5, kimi 2.5.2, pi 1.5.0 +
+pi-subagents 0.86.0, Claude Code 2.1.319 and code.claude.com docs. Part 2 and 3 verified 2026-11-26 live
+against claude 2.1.332, codex 0.172.0, agy 1.5.18, cursor-agent 2026.11.22, pi 1.6.0, opencode 2.3.2.
+Gemini CLI and Copilot sections are older and unverified since. Re-check after a major version bump:
+`lanes selftest` compares installed versions and required flags with `adapters.json`; grep a binary's
+strings or bundled docs rather than trusting this file.
 
-## Claude Code
+## Part 1 — Native subagent syntax (your own pool)
+
+### Claude Code
 
 - `Agent` tool: `subagent_type`, `model: haiku|sonnet|opus|fable` (aliases only, no full IDs or
   `inherit`), `effort: low|medium|high|xhigh|max` (v2.1.292+), `run_in_background`, `isolation: worktree`.
@@ -16,7 +21,7 @@ version bump: grep the binary's strings / bundled docs rather than trusting this
   A family alias equal to the session's family resolves to the session's exact model.
   Built-in `Explore`/`Plan` run on the session model (from Fable: on Opus) unless `model` is passed.
   Optional safety net: `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` in settings `env` catches omitted models
-  (not set on this machine; doesn't affect Explore/Plan or forks).
+  (unset by default; doesn't affect Explore/Plan or forks).
 - Effort: session effort applies only to subagents on the session model; on another model set it.
 - `Workflow` tool (only when the user opts in): `agent(prompt, {label, phase, schema, model, effort,
   agentType, isolation})`, `parallel()`, `pipeline()`. Agents with identical model/effort/type/tools/
@@ -43,7 +48,7 @@ const verdicts = await parallel(hyps.map(h => () =>
 return { traced, verdicts } // T3 synthesis happens in the main session
 ```
 
-## OpenAI Codex CLI (0.166)
+### OpenAI Codex CLI (0.166)
 
 - Tools: `spawn_agent` (`task_name`, `agent_type`, `model`, `reasoning_effort`, `fork_turns: none|all`,
   `nickname`), `followup_task`, `send_message`, `wait_agent`, `interrupt_agent`, `list_agents`.
@@ -56,7 +61,7 @@ return { traced, verdicts } // T3 synthesis happens in the main session
   `default_subagent_reasoning_effort`. Roles can pin model/effort.
 - Effort values: `none|minimal|low|medium|high|xhigh`.
 
-## OpenCode (2.2.5)
+### OpenCode (2.2.5)
 
 - Subagent = agent with `mode: "subagent"` (`"primary"|"all"` also valid) in
   `~/.config/opencode/opencode.jsonc` → `agent.<name>.{description, model, permission, steps, hidden}`.
@@ -67,7 +72,7 @@ return { traced, verdicts } // T3 synthesis happens in the main session
 - Source: `strings $(brew --prefix)/Cellar/opencode/*/bin/opencode` (Config.Agent schema),
   https://opencode.ai/docs/agents , /docs/models
 
-## Kimi Code (2.5.2)
+### Kimi Code (2.5.2)
 
 - Tools: `Agent` (`description`, `subagent_type`, `fork`, `model`, `resume`, background) and
   `AgentSwarm` (batch spawn, one shared `model`). Background results are fed back automatically.
@@ -77,7 +82,7 @@ return { traced, verdicts } // T3 synthesis happens in the main session
 - Source: `@moonshot-ai/kimi-code/dist/main.mjs` (Agent/AgentSwarm zod schema),
   https://moonshotai.github.io/kimi-code/en/configuration/config-files.html
 
-## pi (1.5.0, pi-subagents 0.86.0)
+### pi (1.5.0, pi-subagents 0.86.0)
 
 - Tool `subagent` (enable with `subagents_enable({})`; `/run <role>[model=provider/id:level] "task"`).
   Per-launch `model` (exact `provider/id`, optional `:thinking` suffix) and `thinking` params.
@@ -87,64 +92,100 @@ return { traced, verdicts } // T3 synthesis happens in the main session
 - One model per launch, no fallback chains: if it fails, relaunch explicitly with another in-scope
   model. `fast: true` only for interactive loops (burns quota).
 
-## Gemini CLI (2026-11-25)
-
-- No longer serves free, AI Pro or Ultra accounts since 2026-06-18 (`UNSUPPORTED_CLIENT`); only API key,
-  Vertex or Code Assist Standard/Enterprise. Not installed here; subscription capacity is `agy`.
-
-## Antigravity CLI — `agy` (verified 2026-11-25, 1.5.16)
+### Antigravity CLI — `agy` (1.5.16)
 
 - Subagents: `~/.gemini/config/agents/<name>.md` (workspace `.agents/agents/`), frontmatter `name`,
   `description`, `tools`, `model` (`inherit|flash|pro|flash_lite`); `agy --agent <name>`, `agy agents`.
-- Headless: `agy -p "..." --model <slug> --effort low|medium|high|xhigh|max --mode accept-edits|auto|plan
-  --output-format text|json|stream-json --print-timeout 0s`. Tools needing approval are soft-denied
-  (exit 0); blanket `--dangerously-skip-permissions`, scoped `permissions.allow` in settings.
-- Auth: Google account in Keychain = AI Pro/Ultra quota. API billing only with `modelProvider: "gemini"`
-  plus `GEMINI_API_KEY` (key alone has no effect; `.env` files are not read).
-- Skills: does NOT read `~/.agents/skills`; sync mirrors skills-all into `~/.gemini/antigravity-cli/skills`.
-  The server-side customization budget excludes some of ~200 skills (listed by name only).
-- Source: antigravity.google/docs (cli/reference, cli/headless, subagents, install) + embedded hooks doc.
+- Skills: does NOT read `~/.agents/skills`; mirror or link skills into `~/.gemini/antigravity-cli/skills`.
+  The server-side customization budget can exclude some skills when there are many (listed by name only).
+- Source: antigravity.google/docs (cli/reference, cli/headless, subagents, install).
 
-## GitHub Copilot CLI (unverified since 2026-08-26)
+### Gemini CLI (2026-11-25)
+
+- No longer serves free, AI Pro or Ultra accounts since 2026-06-18 (`UNSUPPORTED_CLIENT`); only API key,
+  Vertex or Code Assist Standard/Enterprise. Google subscription capacity is reached through `agy`.
+
+### GitHub Copilot CLI (unverified since 2026-08-26)
 
 - Custom agents JSON `agents: [{name, entrypoint, model, tools}]`, `/agent` or `--agent <name>`;
   no in-session spawn tool, no effort knob. Skills: `~/.agents/skills/`, `~/.copilot/skills/`.
 - Source: github.com/github/copilot-cli, docs.github.com → copilot-cli/customize-copilot/add-skills
 
-## Verified 2026-11-26 (Task 7)
+## Part 2 — Headless notes per CLI (the lanes `lanes run` starts)
 
-Live acceptance of `lanes` against claude 2.1.332, codex 0.172.0, agy 1.5.18, cursor-agent 2026.11.22,
-pi 1.6.0, opencode 2.3.2. Plain notes; Task 8 rewrites this file.
+All lanes: stdin is `/dev/null` (claude reads the prompt file on stdin), API-key variables
+(`OPENAI_API_KEY`, `CODEX_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `CURSOR_API_KEY`, ...) are stripped
+from the child so a subscription lane cannot fall through to API billing, stderr is noisy (banners, MCP
+errors; the answer is in `out.txt`), and the child sees `LANES_DEPTH=1`, so `lanes run` inside it exits 3.
+A write job is judged by `git diff`, never by exit code. Pools and billing come from `lanes discover`;
+a login alone is not a plan (`logged_in_unverified` is not used until quota or `--probe` shows a plan).
+`lanes discover --probe` sends one prompt to every subscription pool it can see, including logins whose
+plan was cancelled (they fail cheaply); expect about eight model calls, so run it only when asked.
 
-Orchestrator markers (env vars each harness sets in its tool shell; `detect_self_pool` uses them):
-- Claude Code `CLAUDECODE=1`; Codex `CODEX_THREAD_ID` (also `CODEX_SESSION_ID`, `CODEX_CI`, `CODEX_VERSION`;
-  `CODEX_SANDBOX` only while sandboxed); agy `ANTIGRAVITY_AGENT`; cursor-agent `CURSOR_AGENT`;
-  pi `PI_CODING_AGENT` + `PI_PROVIDER` (also `PI_MODEL`, `PI_SESSION_ID`); opencode `OPENCODE_SESSION_ID`.
-- A CLI started from another harness's shell inherits that harness's marker, so check the innermost first.
-  `CODEX_COMPANION_*` is the Claude Code Codex plugin, not Codex itself. pi's pool is the one its
-  `PI_PROVIDER` routes to; opencode names no provider, so its pool is unknown (pass `--from <pool>`).
+| CLI | Quota source (headless) | Windows | Run template | Billing trap |
+|---|---|---|---|---|
+| claude | `claude -p "/usage" --output-format json`, 0 tokens | 5h, weekly, per-model weekly | `claude -p --model M --effort E --permission-mode plan\|acceptEdits --output-format json` | API key in env |
+| codex | `codex app-server` JSON-RPC `account/rateLimits/read` | per account (often weekly only) | `codex exec -m M -c model_reasoning_effort=E -s read-only\|workspace-write --ephemeral -o out.txt "<p>" </dev/null` | credit balance spendable after the limit |
+| agy | `agy -p "/usage" --output-format json`, 0 tokens | 5h + weekly per model group (Gemini; Claude and GPT) | `agy -p "<p>" --model M --effort E --mode plan\|accept-edits --output-format json </dev/null` | AI Credits when `useG1Credits` is on; `modelProvider: "gemini"` + key = API |
+| cursor-agent | none official; internal usage API needs the keychain token, so off by default (`cursor_read_quota`) | monthly | `cursor-agent -p --trust --model M-effort --mode ask`, `--force` to write | on-demand billing on paid plans |
+| pi | none of its own; read from the pool's official CLI | n/a | `pi -p --no-session --no-extensions --no-skills --no-context-files --no-mcp --model provider/id:effort`, read adds `--tools read,grep,find,ls` | an `openai` provider (API key) sits next to `openai-codex` (subscription) |
+| opencode | none (`stats` is local counting) | n/a | `opencode run --standalone --archived --agent plan\|build -m 'provider/model#variant'` with permissions in `OPENCODE_CONFIG_CONTENT` | without `--standalone` the shared background service uses its own env, API keys included |
+| kimi, qwen | unverified: first `--probe` on your machine decides; limits tracked reactively from error text | n/a | see `adapters.json` | qwen: `OPENAI_API_KEY`+`OPENAI_BASE_URL`+`OPENAI_MODEL` together silently switch to paid openai-compatible mode |
 
-Codex calling `lanes`:
-- `codex exec -s workspace-write -c sandbox_workspace_write.network_access=true` runs `lanes pick` fine and
-  `lanes discover` partially: Claude/Google/Cursor pools resolve, but the chatgpt quota reader fails
-  (`quota_unknown`) and the pi/opencode routers come back `adapter_broken`. A full discovery needs
-  `--dangerously-bypass-approvals-and-sandbox` (or an approved escalation for `lanes discover`).
-  Run `lanes discover` once outside the sandbox, then let sandboxed Codex call `pick`/`run` from the cache.
-- A discovery without probes takes 30-60 s; Codex's tool call gives up after 30 s unless told to wait.
-- `LANES_CACHE`/`LANES_CONFIG` set on the command line reach the child.
+Multi-provider CLIs (pi, opencode, qwen) are a second door into pools, not pools. Provider → pool and billing
+mapping lives in `adapters.json` (for example pi `openai-codex` and opencode `openai` OAuth → `chatgpt`;
+`deepseek`, `moonshotai` and pi `openai` → `api`). A pool's quota is read from its official CLI when installed
+(ChatGPT → codex RPC), otherwise tracked reactively: a limit error marks the pool `exhausted until reset`.
+The Anthropic pool is reached only through `claude`; Anthropic logins inside pi/opencode are ignored.
 
-Per-CLI headless notes:
-- agy: no shell in headless mode (tool calls are denied) unless `--dangerously-skip-permissions`; file edits work
-  with `--mode accept-edits`. Model slugs carry the effort (`gemini-4-neon-low|medium|high`), so the tier
-  picks the slug; `--effort` is passed as well.
-- cursor-agent: the Free plan lists every model but only runs Auto and Grok; others fail with
-  `ActionRequiredError: Model unavailable on Free`, so the probe uses `auto`. Its tool shell re-reads the user's
-  shell profile, so stripped API-key variables reappear inside it (they are not used for billing there).
-- pi: `--model provider/id:effort`; its tool shell has no subagent tool and sees `PI_SUBAGENT_MAX_DEPTH=0`.
-- opencode: `-m provider/model#low` works; the first listed OpenAI model may be a restricted one, so the
+Per-CLI notes:
+- **claude**: the nesting guard is `--disallowedTools Agent`.
+- **codex**: model slugs and effort levels come from `codex debug models`.
+- **agy**: no shell in headless mode (tool calls are denied, exit code still 0) unless
+  `--dangerously-skip-permissions`; file edits work with `--mode accept-edits`. Model slugs carry the effort
+  (`<model>-low|medium|high`), so the tier picks the slug; `--effort` is passed as well. Every call costs a
+  ~26k-token input floor, so tiny jobs are not worth a lane. Jobs that need to run tests (`--needs-shell`) skip agy
+  unless the `agy_allow_shell` config key is set.
+- **cursor-agent**: the Free plan lists every model but only runs Auto and Grok (`ActionRequiredError: Model
+  unavailable on Free`), so the probe uses `auto`. About 10 s start-up. Its tool shell re-reads the user's shell
+  profile, so stripped API-key variables reappear inside it (they are not used for billing there).
+- **pi**: `--model provider/id:effort`; its tool shell has no subagent tool and sees `PI_SUBAGENT_MAX_DEPTH=0`.
+  Always pass the full `openai-codex/...` model, never a bare `openai/...`.
+- **opencode**: `-m provider/model#low` works; the first listed OpenAI model may be a restricted one, so the
   probe pins `gpt-5.6-luna`. It resolves its project from `$PWD`, not the process cwd: `lanes` sets `PWD` to
   the worktree, otherwise a write job lands in the launching checkout. With the deny config its shell has no
   subagent tool.
-- `lanes discover --probe` sends one prompt to every subscription pool it can see, including logins whose plan
-  was cancelled (they fail cheaply). Expect about eight model calls.
-- Nested guard: every child sees `LANES_DEPTH=1`; `lanes run` then exits 3.
+- **Nesting guard** per CLI: claude `--disallowedTools Agent`, pi `--no-extensions` + `PI_SUBAGENT_MAX_DEPTH=0`,
+  opencode `subagent` deny in the injected config, qwen `--exclude-tools agent`; every lane prompt also opens
+  with a "do not delegate" preamble.
+
+## Part 3 — Orchestrating from each harness
+
+`lanes` infers the caller's own pool from env vars the harness sets in its tool shell; a pool equal to the
+caller's is refused by `lanes run` (use a native subagent), and `pick` marks it `native`.
+
+| Harness | Marker | Own pool |
+|---|---|---|
+| Claude Code | `CLAUDECODE=1` | `anthropic` |
+| Codex | `CODEX_THREAD_ID` (also `CODEX_SESSION_ID`, `CODEX_CI`, `CODEX_VERSION`; `CODEX_SANDBOX` only while sandboxed) | `chatgpt` |
+| agy | `ANTIGRAVITY_AGENT` | `google:*` |
+| cursor-agent | `CURSOR_AGENT` | `cursor` |
+| pi | `PI_CODING_AGENT` + `PI_PROVIDER` (also `PI_MODEL`, `PI_SESSION_ID`) | the pool its `PI_PROVIDER` routes to |
+| opencode | `OPENCODE_SESSION_ID` | unknown: it names no provider, pass `--from <pool>` |
+| Kimi, Qwen | none verified | pass `--from <pool>` |
+
+- A CLI started from another harness's shell inherits that harness's marker, so the innermost one wins.
+  `CODEX_COMPANION_*` belongs to a Claude Code Codex plugin, not to Codex.
+- When no marker is recognised `pick` and `run` need `--from <pool>`.
+- `LANES_CACHE` (default `~/.cache/lanes`) and `LANES_CONFIG` (default `~/.config/lanes/config.json`) set on the
+  command line reach the child. Config keys: `cursor_read_quota`, `agy_allow_shell`, `orchestrator_reserve_pct`.
+
+**Codex as orchestrator (sandbox).** `codex exec -s workspace-write -c sandbox_workspace_write.network_access=true`
+runs `lanes pick` fine and `lanes discover` partially: Claude, Google and Cursor pools resolve, but the ChatGPT quota
+reader fails (`quota_unknown`) and the pi/opencode routers come back `adapter_broken`. A full discovery needs
+`--dangerously-bypass-approvals-and-sandbox` or an approved escalation for `lanes discover`. Run `lanes discover`
+once outside the sandbox, then let the sandboxed session call `pick` and `run` from the cache. A discovery without
+probes takes 30-60 s and Codex's tool call gives up after 30 s unless told to wait.
+
+**Claude Code, agy, Cursor, pi, OpenCode, Kimi, Qwen as orchestrator:** no sandbox caveat found. Call `lanes`
+through the shell tool; write lanes need the working directory to be a git repo with a commit.

@@ -1,14 +1,17 @@
 ---
 name: token-efficient-workflow
-description: Plans delegation so the session's top model only orchestrates and synthesizes, while every subagent, workflow agent, fork or background job runs on an explicitly chosen cheaper model and effort, with a measured cost ledger. Use before spawning ANY subagent, Explore/Plan agent, workflow agent, parallel worker or delegated job (Claude Code, Codex, OpenCode, Kimi, pi), when about to leave the model parameter unset, delegate synthesis, or fan out more than 3 agents, and whenever the user asks for a token-efficient, cheap, quota-safe or "ucuz" workflow or investigation.
+description: Use when delegating work to subagents or other agent CLIs, or when a subscription limit is a concern. Triggers - before spawning ANY subagent, Explore/Plan agent, workflow agent, fork, parallel worker or background job; a Claude, Codex, Gemini/agy or Cursor limit or quota is filling up ("limit", "kota", "quota", "limit doldu", "weekly is at 84%"); "ask Gemini", "ask Codex", "ask Claude", "Gemini'ye sor", "Codex'e sor", "ikinci görüş", "çapraz review", "review this diff"; or the user wants a token-efficient, cheap ("ucuz") workflow. The session model only orchestrates; every spawn gets an explicit cheaper model and effort; bulk work, research and cross-provider review go to lanes in other subscription pools via the bundled `lanes` CLI, with a cost ledger. Works from any harness (Claude Code, Codex, agy, Cursor, pi, OpenCode, Kimi, Qwen).
 ---
 
 # Token-Efficient Workflow
 
-Context isolation (subagents read, main session gets summaries) is half of token
-efficiency. The other half is **tiering**: the session's model is the scarcest
-quota, so it orchestrates and synthesizes and nothing else. Every spawn names
-its model and effort; the inherited default is never used for a spawn.
+Two levers. **Tiering:** the session's model is the scarcest quota, so it
+orchestrates and synthesizes and nothing else; every spawn names its model and
+effort. **Pools:** each subscription (Claude, ChatGPT/Codex, Google/agy, Cursor,
+...) has its own limit that resets and expires unused. A pool at 84% with days
+left should not carry the bulk while another pool sits at 20%. The bundled
+`lanes` CLI discovers the pools, ranks lanes (pool + CLI + model + effort), runs
+them headless and keeps the ledger. Any harness can be the orchestrator.
 
 ## The Rule
 
@@ -16,8 +19,8 @@ its model and effort; the inherited default is never used for a spawn.
 NO SPAWN WITHOUT AN EXPLICIT MODEL + EFFORT. NEVER SPAWN THE SESSION'S OWN MODEL.
 ```
 
-Why: an omitted `model` inherits the session model, and a family alias of the
-session model (`opus` from an Opus session) resolves to that exact model. Built-in
+An omitted `model` inherits the session model, and a family alias of the session
+model (`opus` from an Opus session) resolves to that exact model. Built-in
 `Explore`/`Plan` also run on the session model. Session effort does not carry
 over to a different model, so an unset `effort` falls back to that model's default.
 
@@ -32,13 +35,82 @@ over to a different model, so an unset `effort` falls back to that model's defau
 ## Decide Before You Spawn (stop at the first rung that holds)
 
 0. **Script it.** Counting, linting, diffing, schema checks, grep inventories →
-   one `ctx_execute`/Bash script in the main session. Zero agent tokens.
-1. **Do it inline.** A handful of tool calls, a known file, quick back-and-forth
-   → main session. A fresh subagent re-pays for the context it lacks.
+   one script in the main session. Zero agent tokens.
+1. **Do it inline.** A handful of tool calls, a known file, quick back-and-forth.
+   A fresh subagent or lane re-pays for the context it lacks, and a lane adds CLI
+   start-up (seconds, sometimes tens of thousands of tokens).
 2. **Fork** only when the work needs most of the current conversation and is
    short: it reuses the session's prompt cache but runs on the session model.
-3. **Fresh tiered subagent** for self-contained, verbose or parallel work that
-   can return a summary. Everything below is about this case.
+3. **Tiered subagent in your own pool** (native `Agent`/`spawn_agent`/pi
+   `subagent`, syntax in `harnesses.md`) for self-contained, verbose or parallel
+   work that returns a summary.
+4. **Lane in another pool** when your pool is braked (pace above 1) or short on
+   headroom, when the work is a review, or when another model family fits it
+   better. This is where quota is actually saved. Next section.
+
+## Lanes in other pools
+
+Run `lanes` if it is on PATH, otherwise `python3 <skill dir>/scripts/lanes.py`
+(`lanes install --bin-only` puts it on PATH). Python 3, stdlib only.
+
+```
+lanes discover                       # once per session: pools, billing, quota (cached 15 min). No model calls.
+lanes pick --tier T1 --kind write --task code --n 3
+lanes run --pool P --cli C [--provider V] --model M --effort E --mode write --worktree \
+          --prompt-file brief.md --bg --tier T1 --kind write --task code     # prints a job id
+lanes wait <id> [<id> ...]           # one blocking call for all jobs; never poll in a loop
+lanes mark <id> used|reworked|wasted # outcome into the ledger; `lanes ledger` prints totals
+```
+
+**Plan line.** Before any delegation, fill this in and show it. An empty slot
+means you have not decided yet:
+
+```
+work: <kind, tier> | own pool: <pool, window %, pace> | writer/runner: <pool cli model effort or native> |
+reviewer: <pool, different from the writer's pool> | spend: none
+```
+
+**Reading `pick`.** `--tier T0|T1|T2` is the task shape (rubric below),
+`--kind read|write|review`, `--task code|review|research|plan|docs|ui` steers toward model strengths,
+`--needs-shell` skips lanes that cannot run shell. Each row: `pool cli provider/model effort fits urgency brake
+approval reason`. Rows are ranked, so take the first usable row; `--n 3` gives fallbacks.
+- `cli = native` is your own pool: use a tiered subagent, not `lanes run`.
+- `brake=True` means that pool's pace is above 1 and the job is not small; the row sorts later.
+- `approval=True` means api- or unknown-billed. Skip it unless the user says yes to spend.
+- A lane that cannot fit the job in its remaining quota is already dropped.
+- `pick` knows your own pool from the harness environment. If it cannot tell, pass `--from <pool>`.
+
+**`run` flags** come from the `pick` row: `--pool --cli --provider --model --effort`. `--mode read|write|write_shell`;
+`write` needs `--worktree` (a fresh git worktree on branch `lanes/<job>`). `--bg` returns at once; without it
+`run` waits and prints the answer. Answers land in `<cache>/jobs/<job>/out.txt`
+(`$LANES_CACHE`, default `~/.cache/lanes`); `lanes wait --json` also gives `worktree` and `branch`.
+Exit codes: 0 ok, 2 usage/environment or wait timeout, 3 nested, 4 approval needed, 6 job failed, limit or no_changes.
+
+### Routing rules
+
+1. **Own pool first when it has room.** `pick` shows `native` ahead of others and your window is not braked:
+   tiered subagent. Go to another pool when your pace is above 1, the pool is exhausted, the work suits
+   another family, or it is a review.
+2. **Use it or lose it.** Unspent quota burns at the reset. Take `pick`'s first row; it already ranks by
+   remaining % per hour to reset and keeps long jobs off pools at the tail. No fixed threshold, and a high
+   Claude percentage is not a reason to stop using Claude: it is a reason to send bulk and review elsewhere
+   and keep your own pool for T3 synthesis.
+3. **Review leaves the writer's pool.** `lanes pick --kind review --task review --tier T2 --author-pool <writer pool>`
+   (T1 for small diffs). The writer pool is the pool of the lane or job that produced the diff: its `lanes run`
+   row or ledger line; if you wrote it yourself, your own pool. For security, money, migration or
+   infrastructure changes take two reviewers from two different pools, neither the writer's.
+4. **Money.** Lanes never cross a plan limit on their own. api/unknown billing needs `approval`; pass
+   `--allow-spend` only after the user agreed to that spend in this conversation.
+5. **Writes** run `--mode write --worktree`, one disjoint file set per lane. A write is judged by the diff
+   (`git -C <worktree> diff`), never by exit code: status `done` means files changed, `no_changes` is a failure.
+   Read the diff yourself (T3), run the tests, merge the branch. If it needs shell (tests), `--needs-shell`.
+6. **No silent fallback.** A failed or `limit` lane is reported to the user in one line; you then pick the next
+   `pick` row yourself and `lanes mark <id> wasted`. A limit-cut write continues with `--resume <job>` in the same worktree.
+7. **No nesting.** Lane prompts say "do not delegate". `lanes run` exits 3 inside a lane: then do the work yourself.
+8. **Brief a lane like any spawn** (shape below) and put what it must return at the end. It starts with no
+   context, no skills and no memory of this conversation.
+
+Per-CLI invocation details, quota sources, billing traps and orchestrating from each harness: `harnesses.md`.
 
 ## Tier Rubric — classify by task shape, not by how important the bug is
 
@@ -51,8 +123,9 @@ over to a different model, so an unset `effort` falls back to that model's defau
 
 Under-tiering is a failure too: T0 models miss branch conditions in multi-file
 semantic tracing. "Does the stored value ever differ from the input?" is T1.
+Research that only needs docs or a repo read is T0/T1 on a lane, never T2.
 
-## Shape of a Spawn Prompt
+## Shape of a Spawn Prompt (native subagent or lane)
 
 1. Paths + what is already known and ruled out (no re-derivation).
 2. ONE precise question or ONE owned file set per agent; the symptom it serves.
@@ -66,25 +139,28 @@ semantic tracing. "Does the stored value ever differ from the input?" is T1.
 schema and cwd share a prompt-cache prefix. Put the shared brief first and the
 per-agent part (file list, hypothesis) last; batch spawns by tier.
 
-**Write-capable agents:** back up first, give each agent a disjoint file set,
-review the combined diff in the main session (T3), then at most one T2 review.
+**Write-capable agents:** back up first (a lane's worktree is the backup), give
+each agent a disjoint file set, review the combined diff in the main session
+(T3), then one review from another pool (rule 3).
 
 ## Measure Every Run (the ledger)
 
-Each Agent completion carries `<usage>` (`subagent_tokens`, `tool_uses`,
-`duration_ms`); `/tasks` shows each running agent's model and effort; `/workflows`
-shows per-agent tokens. Keep one ledger row per spawn and report the totals:
+`lanes` writes one ledger row per lane job (pool, model, effort, duration, status,
+quota delta); `lanes mark` adds the outcome and `lanes ledger [--since 1d]` totals
+it. Native spawns: each Agent completion carries `<usage>` (`subagent_tokens`,
+`tool_uses`, `duration_ms`); `/tasks` shows each running agent's model and effort.
+Report one line per spawn and the totals:
 
-| label | tier | model/effort | tokens | duration | outcome (used / reworked / wasted) |
+| label | tier | pool + model/effort | tokens or quota Δ | duration | outcome (used / reworked / wasted) |
 
-Fixed overhead is real: on this machine a fresh `general-purpose` subagent used
-~50 k tokens with zero tool calls (system prompt, tools, CLAUDE.md, skill listing;
-measured 2026-11-09). Work smaller than that belongs inline (rung 1). For read-only
-search prefer `Explore` with an explicit `model`: it starts without CLAUDE.md.
+Fixed overhead is real: one measurement showed a fresh `general-purpose` subagent
+using ~50 k tokens with zero tool calls (system prompt, tools, memory files, skill
+listing). Work smaller than that belongs inline (rung 1). For read-only search
+prefer `Explore` with an explicit `model`: it starts without the memory files.
 
 Review it before the next fan-out: a T0 row that needed a rerun → re-tier to T1;
-a T1/T2 row whose output was ignored → cut it. Try a large fan-out on a small
-slice first. Limits: 20 concurrent subagents; workflow warns above 25 agents or
+a row whose output was ignored → cut it. Try a large fan-out on a small slice
+first. Limits: 20 concurrent subagents; workflow warns above 25 agents or
 1.5 M projected tokens.
 
 ## Rationalizations Seen in Real Runs
@@ -100,15 +176,24 @@ slice first. Limits: 20 concurrent subagents; workflow warns above 25 agents or
 | "Everything on haiku is cheapest" | Haiku misses multi-file branch conditions → wrong verdict → rerun. Match tier to shape. |
 | "Session effort is fine for the critical step" | Effort is per spawn; it does not carry across models. `high` only on T2. |
 | "One agent per finding/file is thorough" | One per hypothesis or per owned file set; cap T2 at 4 and log what was capped. |
+| "84% means stop using Claude" | It means stop spending it on bulk. Writes, research and reviews go to the pools `pick` ranks first; Claude keeps T3. |
+| "My pool has room, so everything stays native" | Check pace, not just percent: 84% with 5 days left is pace above 1. Look at the other pools before choosing. |
+| "Exit 0, so the write worked" | agy exits 0 when it was denied a tool. Success is a non-empty `git diff` in the worktree. |
+| "Other CLIs are only for second opinions" | They are lanes for writes, research and reviews. A second opinion is one use. |
+| "The reviewer can be the same provider, it is a different model" | Same pool = same quota and same blind spots as the writer. `--author-pool` excludes it. |
+| "`lanes discover` is slow, I will guess the quotas" | One 20-60 s call, then cached 15 min. Guessed quotas route the bulk to the wrong pool. |
+| "It failed, so I will quietly do it myself" | Say it failed, take the next `pick` row, mark the dead one `wasted`. Doing it inline spends the top model. |
 
-## Red Flags — STOP and re-tier
+## Red Flags — STOP and re-plan
 
 - An `Agent(`/`agent(`/`spawn_agent(`/subagent call with no `model` or no `effort`
 - `subagent_type: Explore|Plan` without `model`
 - The session model's name or family alias in any spawn
 - A spawn labelled "synthesis", "final report", "root cause verdict"
+- Delegating with no `lanes pick` (or `lanes discover`) before it, or no Plan line
+- A review whose pool equals the pool that wrote the diff
+- A write lane without `--worktree`, or a write called done from the exit code
+- `--allow-spend` without the user's yes, or an `approval=True` row run silently
 - More than 4 T2 agents, or a verifier per finding instead of per hypothesis
 - A brief without an output schema or without the `file:line` requirement
 - A fan-out that ends without a ledger total
-
-Per-harness call syntax, config keys and this machine's state: `harnesses.md`.
