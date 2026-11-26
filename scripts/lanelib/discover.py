@@ -585,7 +585,8 @@ def read_pool_windows(pool_id, adapters, cfg, now):
 
 def _merge(pools, p):
     cur = pools.get(p.id)
-    if cur is None or cur.status in DEAD:
+    # a subscription route replaces a dead or pay-per-use official record
+    if cur is None or cur.status in DEAD or (cur.billing == "api" and p.billing == "subscription"):
         pools[p.id] = p
     else:
         cur.access += p.access
@@ -620,8 +621,8 @@ def discover(adapters, cfg, refresh, do_probe, now):
 
     for pid, p in pools.items():  # probe results (usable/no_plan without quota) live for 24 h
         o = old.get("pools", {}).get(pid)
-        if p.status != "logged_in_unverified":
-            continue
+        if p.status != "logged_in_unverified" or p.billing != "subscription":
+            continue  # api/unknown billing is never probed (a probe spends money)
         if o and o["status"] in ("usable", "no_plan") and not o["windows"] \
                 and now - o["checked_at"] < PROBE_TTL and not (refresh and do_probe):
             p.status, p.note, p.checked_at = o["status"], o["note"], o["checked_at"]

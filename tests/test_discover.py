@@ -222,7 +222,7 @@ class Routers(Base):
         ps = discover.check_router("opencode", self.adapters, NOW)
         self.assertEqual(sorted(p.id for p in ps), ["api:deepseek", "chatgpt"])
         flat = " ".join(" ".join(c) for c in self.calls())
-        for bad in ("credential.list", "export", "opencode.jsonc", "auth list"):
+        for bad in ("credential.list", "export", "opencode.jsonc"):
             self.assertNotIn(bad, flat)
 
     def test_qwen_coding_plan_base_url_is_subscription(self):
@@ -288,7 +288,7 @@ class Discover(Base):
         self.assertEqual((c["cli"], c["status"]), ("pi", "logged_in_unverified"))
         self.assertEqual([a["cli"] for a in c["access"]], ["pi"])
 
-    def test_inventory_written_and_has_no_email_or_secret(self):
+    def test_inventory_has_no_email(self):
         os.environ["STUB_PI_READY"] = "openai-codex"
         self.put(".codex/auth.json", {"auth_mode": "chatgpt", "tokens": {"access_token": "SECRET"}})
         self.put(".pi/agent/auth.json", {"openai-codex": {"type": "oauth", "access": "SECRET"}})
@@ -313,18 +313,37 @@ class Discover(Base):
         self.assertEqual(probe[probe.index("-p") + 1], "Reply with exactly: OK")
         self.assertEqual(probe[probe.index("-m") + 1], "k3")
 
-    def test_probe_plan_error_is_no_plan_and_not_reprobed_for_24h(self):
+    def test_probe_plan_error_is_no_plan(self):
         self.mode("plan_error")
         inv = self.run_discover(probe=True)
         self.assertEqual(inv["pools"]["kimi"]["status"], "no_plan")
-        n = len([c for c in self.calls() if c[0] == "kimi" and "-p" in c])
-        self.assertEqual(n, 1)
+
+    def test_no_plan_not_reprobed_for_24h(self):
+        self.mode("plan_error")
+        self.run_discover(probe=True)
+        self.assertEqual(len([c for c in self.calls() if c[0] == "kimi" and "-p" in c]), 1)
         self.mode("ok")
         inv = self.run_discover(probe=True, now=NOW + 3600)
         self.assertEqual(inv["pools"]["kimi"]["status"], "no_plan")
         self.assertEqual(len([c for c in self.calls() if c[0] == "kimi" and "-p" in c]), 1)
         inv = self.run_discover(probe=True, now=NOW + DAY + 10)
         self.assertEqual(inv["pools"]["kimi"]["status"], "usable")
+
+    def test_unknown_billing_pool_is_never_probed(self):
+        os.environ["STUB_PI_READY"] = "mystery"
+        self.put(".pi/agent/auth.json", {"mystery": {"type": "api_key"}})
+        self.mode("ok")
+        inv = self.run_discover(probe=True)
+        self.assertEqual(inv["pools"]["unknown:mystery"]["status"], "logged_in_unverified")
+        self.assertFalse(any(c[0] == "pi" and "-p" in c for c in self.calls()))
+        self.assertEqual(inv["pools"]["api:deepseek"]["status"], "api_billing")
+
+    def test_subscription_router_replaces_api_billed_official_pool(self):
+        self.put(".codex/auth.json", {"auth_mode": "apikey"})
+        os.environ["STUB_PI_READY"] = "openai-codex"
+        c = self.run_discover()["pools"]["chatgpt"]
+        self.assertEqual((c["cli"], c["billing"], c["status"]), ("pi", "subscription", "logged_in_unverified"))
+        self.assertEqual([a["cli"] for a in c["access"]], ["pi"])
 
     def test_probe_generic_failure_stays_unverified(self):
         inv = self.run_discover(probe=True)

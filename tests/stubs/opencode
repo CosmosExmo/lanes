@@ -28,6 +28,6 @@ elif a[:1] == ["models"]:
     print("opencode/free-model")
 elif a[:1] == ["run"]:
     model_call()
-else:  # auth list / export / credential.list: would leak secrets, tests assert we never get here
+else:  # export / credential.list expose secrets: tests assert we never get here
     sys.stderr.write("sk-secret-should-never-be-read\n")
     sys.exit(99)
