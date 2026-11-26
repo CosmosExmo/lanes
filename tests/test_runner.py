@@ -233,6 +233,39 @@ class PlanLimitTests(RunnerCase):
         with mock.patch.object(discover, "read_pool_windows", return_value=self.windows(85.0)):
             self.assertEqual(self.meta(self.start(CODEX))["status"], "done")  # 15 left >= 3
 
+    def test_two_simultaneous_starts_with_room_for_one_do_not_both_pass(self):
+        """C3 race: fit check and est_cost reservation are one atomic step under reserve.lock."""
+        slow = self.tmp / "bin"
+        slow.mkdir()
+        (slow / "codex").write_text("#!/bin/sh\nsleep 2\n")  # job 1 stays running while job 2 asks
+        (slow / "codex").chmod(0o755)
+        os.environ["PATH"] = f"{slow}{os.pathsep}{os.environ['PATH']}"
+        real_busy, barrier, results = runner._busy_cost, threading.Barrier(2), []
+
+        def gap(*a, **k):  # widen the window between "read busy jobs" and "write my meta"
+            busy = real_busy(*a, **k)
+            time.sleep(0.4)
+            return busy
+
+        def go():
+            barrier.wait()
+            try:
+                results.append(("started", self.start(CODEX)))
+            except SystemExit as e:
+                results.append(("exit", e.code))
+
+        # 5h: 4% left; a T0 job costs 3% -> exactly one fits, the second sees 4 - 3 < 3
+        with mock.patch.object(discover, "read_pool_windows", return_value=self.windows(96.0)), \
+                mock.patch.object(runner, "_busy_cost", gap), mock.patch("sys.stderr", io.StringIO()):
+            ts = [threading.Thread(target=go) for _ in range(2)]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
+        self.assertEqual(sorted(r[0] for r in results), ["exit", "started"], results)
+        self.assertEqual([r[1] for r in results if r[0] == "exit"], [4])
+        self.assertEqual(len(self.jobs()), 1)
+
     def test_non_overage_pools_are_not_checked(self):
         self.inv(P("chatgpt", "codex"))
         with mock.patch.object(discover, "read_pool_windows", return_value=None):  # would fail closed if checked

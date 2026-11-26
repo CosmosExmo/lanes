@@ -41,16 +41,26 @@ def read_inventory(max_age_s):
 
 
 @contextlib.contextmanager
-def inventory_lock():
-    """Exclusive lock around an inventory read-modify-write (discover's write, the runner's exhaustion mark)."""
+def _flock(name):
     d = CACHE_DIR()
     d.mkdir(parents=True, exist_ok=True)
-    fd = os.open(d / "inventory.lock", os.O_WRONLY | os.O_CREAT, 0o600)
+    fd = os.open(d / name, os.O_WRONLY | os.O_CREAT, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         yield
     finally:
         os.close(fd)  # closing releases the lock
+
+
+def inventory_lock():
+    """Exclusive lock around an inventory read-modify-write (discover's write, the runner's exhaustion mark)."""
+    return _flock("inventory.lock")
+
+
+def reserve_lock():
+    """Exclusive lock held from a job's plan-limit check until its meta (with est_cost) is written, so two
+    starts on one overage pool cannot both pass the check. Separate from inventory_lock: the check reads quota."""
+    return _flock("reserve.lock")
 
 
 def write_inventory(inv: dict) -> None:

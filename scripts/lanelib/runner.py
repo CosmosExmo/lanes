@@ -5,6 +5,7 @@ on a limit error. Stdlib only.
 Job output files (prompt/argv/stdout/stderr/out/meta) are raw local work product, mode 0600; only
 the ledger and lanes' own printed diagnostics are redacted.
 """
+import contextlib
 import hashlib
 import json
 import os
@@ -412,49 +413,51 @@ def start_job(lane, mode, prompt_file, *, cwd, worktree, resume, bg, allow_spend
     if pool["status"] in discover.DEAD or (
             pool["status"] == "exhausted" and (pool.get("exhausted_until") or _soonest_reset(pool, now)) > now):
         _die(2, f"{lane['pool']} unavailable: {pool['status']}")
-    est = _plan_check(lane, pool, mode, meta, adapters, cfg, now, allow_spend)
-    if mode == "write_shell" and not (a.get("can_shell") or (lane["cli"] == "agy" and cfg.get("agy_allow_shell"))):
-        _die(2, f"{lane['cli']} cannot run shell jobs")
-    cwd = Path(cwd).resolve()
-    use_wt = mode != "read" and bool(worktree or resume)
-    if use_wt and not resume and discover.run_cmd(["git", "-C", str(cwd), "rev-parse", "--git-dir"], 30).returncode:
-        _die(2, "write jobs need a git repo")
+    # an overage pool's fit check and the job's est_cost reservation (its meta) are one atomic step
+    with state.reserve_lock() if pool.get("overage") else contextlib.nullcontext():
+        est = _plan_check(lane, pool, mode, meta, adapters, cfg, now, allow_spend)
+        if mode == "write_shell" and not (a.get("can_shell") or (lane["cli"] == "agy" and cfg.get("agy_allow_shell"))):
+            _die(2, f"{lane['cli']} cannot run shell jobs")
+        cwd = Path(cwd).resolve()
+        use_wt = mode != "read" and bool(worktree or resume)
+        if use_wt and not resume and discover.run_cmd(["git", "-C", str(cwd), "rev-parse", "--git-dir"], 30).returncode:
+            _die(2, "write jobs need a git repo")
 
-    jid = state.new_job_id()
-    jd = state.job_dir(jid)
-    os.chmod(jd, 0o700)
-    wt = branch = snap = None
-    made_wt = False
-    try:
-        if use_wt:
-            if resume:
-                wt, branch = state.CACHE_DIR() / "worktrees" / _jid(resume), "lanes/" + resume
-                if not wt.is_dir():
-                    _die(2, f"unknown worktree: {resume}")
-            else:
-                wt, branch = state.CACHE_DIR() / "worktrees" / jid, "lanes/" + jid
-                r = discover.run_cmd(["git", "-C", str(cwd), "worktree", "add", "-b", branch, str(wt), "HEAD"], 60)
-                if r.returncode:
-                    _die(2, "git worktree add failed (does the repo have a commit?)")
-                made_wt = True
-            snap = _snapshot(wt)
-        _put(jd / "prompt.txt", PREAMBLE + "\n\n" + Path(prompt_file).read_text())
-        for n in ("stdout.txt", "stderr.txt", "out.txt"):
-            _put(jd / n)
-        argv, stdin = build_argv(a, lane, mode, jd / "prompt.txt", jd / "out.txt", timeout_s, wt or cwd)
-        _put(jd / "argv.json", json.dumps({"argv": argv, "stdin": stdin}))
-        _save_meta({"job": jid, "status": "running", "pool": lane["pool"], "cli": lane["cli"],
-                    "provider": lane.get("provider"), "model": lane["model"], "effort": lane.get("effort") or "",
-                    "mode": mode, "tier": meta.get("tier"), "kind": meta.get("kind"),
-                    "task": state.redact(str(meta.get("task") or ""))[:120], "cwd": str(wt or cwd),
-                    "worktree": str(wt) if wt else None, "branch": branch, "snap": snap, "resume_of": resume,
-                    "started": time.time(), "timeout_s": timeout_s, "est_cost": est})
-    except GitFailed as e:
-        _rollback(jd, cwd, wt if made_wt else None, branch)
-        _die(2, str(e))
-    except BaseException:
-        _rollback(jd, cwd, wt if made_wt else None, branch)
-        raise
+        jid = state.new_job_id()
+        jd = state.job_dir(jid)
+        os.chmod(jd, 0o700)
+        wt = branch = snap = None
+        made_wt = False
+        try:
+            if use_wt:
+                if resume:
+                    wt, branch = state.CACHE_DIR() / "worktrees" / _jid(resume), "lanes/" + resume
+                    if not wt.is_dir():
+                        _die(2, f"unknown worktree: {resume}")
+                else:
+                    wt, branch = state.CACHE_DIR() / "worktrees" / jid, "lanes/" + jid
+                    r = discover.run_cmd(["git", "-C", str(cwd), "worktree", "add", "-b", branch, str(wt), "HEAD"], 60)
+                    if r.returncode:
+                        _die(2, "git worktree add failed (does the repo have a commit?)")
+                    made_wt = True
+                snap = _snapshot(wt)
+            _put(jd / "prompt.txt", PREAMBLE + "\n\n" + Path(prompt_file).read_text())
+            for n in ("stdout.txt", "stderr.txt", "out.txt"):
+                _put(jd / n)
+            argv, stdin = build_argv(a, lane, mode, jd / "prompt.txt", jd / "out.txt", timeout_s, wt or cwd)
+            _put(jd / "argv.json", json.dumps({"argv": argv, "stdin": stdin}))
+            _save_meta({"job": jid, "status": "running", "pool": lane["pool"], "cli": lane["cli"],
+                        "provider": lane.get("provider"), "model": lane["model"], "effort": lane.get("effort") or "",
+                        "mode": mode, "tier": meta.get("tier"), "kind": meta.get("kind"),
+                        "task": state.redact(str(meta.get("task") or ""))[:120], "cwd": str(wt or cwd),
+                        "worktree": str(wt) if wt else None, "branch": branch, "snap": snap, "resume_of": resume,
+                        "started": time.time(), "timeout_s": timeout_s, "est_cost": est})
+        except GitFailed as e:
+            _rollback(jd, cwd, wt if made_wt else None, branch)
+            _die(2, str(e))
+        except BaseException:
+            _rollback(jd, cwd, wt if made_wt else None, branch)
+            raise
     if bg:
         code = "import sys; sys.path.insert(0, sys.argv[1]); from lanelib import runner; runner.exec_job(sys.argv[2])"
         p = subprocess.Popen([sys.executable, "-I", "-c", code, str(SCRIPTS), jid], start_new_session=True,
