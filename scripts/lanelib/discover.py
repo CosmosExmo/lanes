@@ -535,8 +535,8 @@ def check_router(name, adapters, now, pools=None):
 
 def _probe(adapters, pool):
     """-> (ok, limit_error): one read-only prompt through the pool's first access CLI."""
-    if not pool.access:
-        return False, False
+    if pool.billing != "subscription" or pool.status in DEAD or not pool.access:
+        return False, False  # money rule: api/unknown billing is never probed
     acc = pool.access[0]
     a = adapters[acc["cli"]]
     model = a["probe_model"] or (acc["models"] or [""])[0]

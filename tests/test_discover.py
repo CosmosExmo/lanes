@@ -370,6 +370,17 @@ class Discover(Base):
         inv = self.run_discover(probe=True)
         self.assertEqual(inv["pools"]["kimi"]["status"], "logged_in_unverified")
 
+    def test_probe_refuses_api_unknown_and_dead_pools(self):
+        self.mode("ok")
+        (k,) = discover.check_kimi(self.adapters, NOW)
+        for billing, status in (("api", "api_billing"), ("unknown", "logged_in_unverified"),
+                                ("subscription", "not_logged_in")):
+            p = Pool(**{**k.to_dict(), "windows": [], "billing": billing, "status": status})
+            self.assertFalse(discover.probe(self.adapters, p), (billing, status))
+            self.assertEqual(discover._probe(self.adapters, p), (False, False))
+        self.assertFalse(any("-p" in c for c in self.calls()))  # no model call reached any stub
+        self.assertTrue(discover.probe(self.adapters, k))  # a subscription pool still probes
+
     def test_probe_function_returns_bool(self):
         self.mode("ok")
         (p,) = discover.check_kimi(self.adapters, NOW)
