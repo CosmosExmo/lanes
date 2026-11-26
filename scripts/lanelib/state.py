@@ -54,7 +54,7 @@ def write_inventory(inv: dict) -> None:
         raise
 
 
-def append_ledger(row: dict) -> None:
+def _write_row(row: dict) -> None:
     d = CACHE_DIR()
     d.mkdir(parents=True, exist_ok=True)
     fd = os.open(d / "ledger.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
@@ -64,25 +64,32 @@ def append_ledger(row: dict) -> None:
         os.close(fd)
 
 
+def append_ledger(row: dict) -> None:
+    _write_row({"ts": time.time(), **row})
+
+
 def read_ledger(since=None) -> list:
+    """One merged dict per job (file order, later keys win), ordered by first appearance."""
     try:
         lines = (CACHE_DIR() / "ledger.jsonl").read_text().splitlines()
     except OSError:
         return []
-    rows = []
-    for l in lines:
+    merged = {}
+    for n, l in enumerate(lines):
         try:
-            rows.append(json.loads(l))
+            row = json.loads(l)
         except ValueError:
             continue
+        merged.setdefault(row.get("job", ("_row", n)), {}).update(row)
+    rows = list(merged.values())
     if since is not None:
         rows = [r for r in rows if r.get("ts", 0) >= since]
     return rows
 
 
 def update_ledger(job_id: str, **fields) -> None:
-    """Append an update row; readers see the last row per job (append-only, race-free)."""
-    append_ledger({"job": job_id, **fields})
+    """Append-only update row (no ts, so it never overrides the original's); read_ledger merges."""
+    _write_row({"job": job_id, **fields})
 
 
 def new_job_id() -> str:

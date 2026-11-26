@@ -59,6 +59,17 @@ class StateCase(unittest.TestCase):
         rows = [r for r in state.read_ledger() if r["job"] == "a"]
         self.assertEqual(rows[-1]["outcome"], "used")
 
+    def test_read_ledger_merges_updates(self):
+        state.append_ledger({"job": "a", "ts": 1, "model": "m"})
+        state.update_ledger("a", outcome="used")
+        self.assertEqual(state.read_ledger(),
+                         [{"job": "a", "ts": 1, "model": "m", "outcome": "used"}])
+        self.assertEqual(state.read_ledger(since=2), [])
+
+    def test_append_ledger_sets_ts(self):
+        state.append_ledger({"job": "b"})
+        self.assertIn("ts", state.read_ledger()[0])
+
     def test_redact(self):
         out = state.redact("x a.b@c.io Bearer abc.def sk-123 eyJa.eyJb.c")
         for s in ("a.b@c.io", "abc.def", "sk-123", "eyJa.eyJb.c"):
