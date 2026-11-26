@@ -1,0 +1,9 @@
+You are currently using your subscription plan.
+
+Current session: 13% used · resets Nov 26 at 5:50pm (Europe/Istanbul)
+Current week (all models): 86% used · resets Nov 27 at 8am (Europe/Istanbul)
+Current week (Fable): 0% used · resets Nov 27 at 8am (Europe/Istanbul)
+
+What's contributing to your usage?
+- 45% of your usage came from long-context sessions
+- 20% of your usage came from subagents
