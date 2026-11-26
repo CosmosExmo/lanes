@@ -42,6 +42,17 @@ def model_call(out_path=None):
         key = {"cursor-agent": "cursor"}.get(NAME, NAME)
         sys.stderr.write(json.load(open(ROOT / "adapters.json"))[key]["limit_error_patterns"][0] + "\n")
         sys.exit(1)
+    if has("denied"):  # agy headless: tool calls refused, empty answer, exit 0
+        print(json.dumps({"status": "SUCCESS", "response": "", "result": "",
+                          "denied_actions": [{"action": "read_file", "target": "/secret/path"}]}))
+        return
+    if has("empty"):
+        print(json.dumps({"status": "SUCCESS", "response": "", "result": ""}))
+        return
+    if has("denied_answer"):  # an answer, but something was refused on the way
+        print(json.dumps({"response": "partial answer", "result": "partial answer",
+                          "denied_actions": [{"action": "run_command"}]}))
+        return
     if has("writefail"):  # edits, then dies: the job is partial work, not a clean failure
         Path("stub_output.txt").write_text("partial")
         sys.stderr.write("Error: something broke\n")

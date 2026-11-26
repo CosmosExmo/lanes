@@ -576,7 +576,7 @@ def _probe(adapters, pool, cli=None):
         pf, out = os.path.join(d, "prompt.txt"), os.path.join(d, "out.txt")
         Path(pf).write_text(PROBE_PROMPT)
         argv = fill_template(a["run"]["read"], model=model, effort="low", prompt=PROBE_PROMPT,
-                             prompt_file=pf, out=out, provider=acc["provider"] or "", timeout="60")
+                             prompt_file=pf, out=out, provider=acc["provider"] or "", timeout="60", cwd=json.dumps(d)[1:-1])
         argv += a.get("nesting_guard", [])
         r = run_cmd(argv, 120, child_env(a, "read"), pf if a["stdin"] == "prompt" else None)
         try:

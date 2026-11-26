@@ -121,6 +121,8 @@ def verdict(ms):
             until = (pools.get(m.get("pool")) or {}).get("exhausted_until")
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until)) if until else "its next reset"
             line += f"; pool exhausted until {when}; pick the next lane"
+        if m.get("note"):
+            line += f"; {m['note']}"
         if st == "partial":
             line += f"; the run failed after editing, worktree kept at {m.get('worktree')}; review or resume it"
         sys.stderr.write(state.redact(line) + "\n")

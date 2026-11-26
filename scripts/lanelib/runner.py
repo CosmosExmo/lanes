@@ -79,7 +79,7 @@ def child_env(adapter, mode):
     return {**discover.child_env(adapter, mode), "LANES_DEPTH": "1"}
 
 
-def build_argv(adapter, lane, mode, prompt_path, out_path, timeout_s):
+def build_argv(adapter, lane, mode, prompt_path, out_path, timeout_s, cwd=""):
     """-> (argv, stdin path). prompt_path holds PREAMBLE + the user's prompt. The adapter's
     nesting_guard is appended for every mode; stdin is the prompt file for `stdin: prompt`, else /dev/null."""
     run = adapter["run"]
@@ -89,7 +89,7 @@ def build_argv(adapter, lane, mode, prompt_path, out_path, timeout_s):
     argv = discover.fill_template(
         tpl, provider=lane.get("provider") or "", model=lane["model"], effort=lane.get("effort") or "",
         prompt=Path(prompt_path).read_text(), prompt_file=str(prompt_path), out=str(out_path),
-        timeout=str(timeout_s))
+        timeout=str(timeout_s), cwd=json.dumps(str(cwd))[1:-1])  # {cwd} sits inside a JSON string (agy --settings)
     argv += adapter.get("nesting_guard", [])
     return argv, (str(prompt_path) if adapter["stdin"] == "prompt" else "/dev/null")
 
@@ -284,7 +284,7 @@ def _write_answer(adapter, mode, jd, stdout):
     out = jd / "out.txt"
     tpl = adapter["run"].get(mode) or adapter["run"]["write"]
     if any("{out}" in t for t in tpl) and out.exists() and out.stat().st_size:
-        return
+        return out.read_text()
     text, field = stdout, adapter.get("answer_field")
     if field:
         try:
@@ -293,6 +293,16 @@ def _write_answer(adapter, mode, jd, stdout):
         except (ValueError, KeyError, TypeError):
             pass
     _put(out, text)
+    return text
+
+
+def _denied(stdout):
+    """Names (never targets) of the tool actions a headless CLI refused, from its JSON `denied_actions`."""
+    try:
+        acts = json.loads(stdout)["denied_actions"]
+        return sorted({a["action"] for a in acts if isinstance(a, dict) and isinstance(a.get("action"), str)})
+    except (ValueError, KeyError, TypeError):
+        return []
 
 
 def _execute(m):
@@ -304,8 +314,16 @@ def _execute(m):
     after = _read_quota(m, adapters, cfg) if before else None
     delta = _delta(before, after) if before and after and not _overlapped(m, t1) else None
     stdout, stderr = ((jd / n).read_text(errors="replace") for n in ("stdout.txt", "stderr.txt"))
-    _write_answer(a, m["mode"], jd, stdout)
+    answer = _write_answer(a, m["mode"], jd, stdout)
     fail = classify_failure(a, rc, stdout, stderr)
+    notes = []
+    if _denied(stdout):
+        notes.append("tools denied: " + ", ".join(_denied(stdout)))
+    empty = bool(a.get("answer_field")) and not answer.strip()  # exit 0 without an answer is not a success
+    if empty:
+        notes.append("empty answer")
+    if notes:
+        m["note"] = "; ".join(notes)
     if fail == "limit":
         status = "limit"
         _mark_exhausted(m["pool"])
@@ -316,6 +334,8 @@ def _execute(m):
             _finish(m, "failed", rc, delta, str(e))
             return
         status = ("done" if rc == 0 else "partial") if changed else "no_changes" if rc == 0 else "failed"
+    elif empty and rc == 0:  # a write job with a worktree is judged by its diff instead (above)
+        status, fail = "failed", "empty answer"
     else:
         status = "done" if rc == 0 else "failed"
     _finish(m, status, rc, delta, fail if status == "failed" else None)
@@ -421,7 +441,7 @@ def start_job(lane, mode, prompt_file, *, cwd, worktree, resume, bg, allow_spend
         _put(jd / "prompt.txt", PREAMBLE + "\n\n" + Path(prompt_file).read_text())
         for n in ("stdout.txt", "stderr.txt", "out.txt"):
             _put(jd / n)
-        argv, stdin = build_argv(a, lane, mode, jd / "prompt.txt", jd / "out.txt", timeout_s)
+        argv, stdin = build_argv(a, lane, mode, jd / "prompt.txt", jd / "out.txt", timeout_s, wt or cwd)
         _put(jd / "argv.json", json.dumps({"argv": argv, "stdin": stdin}))
         _save_meta({"job": jid, "status": "running", "pool": lane["pool"], "cli": lane["cli"],
                     "provider": lane.get("provider"), "model": lane["model"], "effort": lane.get("effort") or "",

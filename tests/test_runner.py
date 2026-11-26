@@ -23,6 +23,7 @@ ADAPTERS = json.loads((ROOT / "adapters.json").read_text())
 NOW = time.time()
 KIMI = {"pool": "kimi", "cli": "kimi", "provider": None, "model": "k3", "effort": ""}
 CODEX = {"pool": "chatgpt", "cli": "codex", "provider": None, "model": "gpt-6-luna", "effort": "low"}
+AGY = {"pool": "google:gemini", "cli": "agy", "provider": None, "model": "gemini-3.8-flash-low", "effort": "low"}
 META = {"tier": "T0", "kind": "read", "task": "unit test"}
 
 
@@ -484,6 +485,56 @@ class InventoryLockTests(RunnerCase):
                 t.join()
         pools = state.read_inventory(None)["pools"]
         self.assertEqual({k: v["status"] for k, v in pools.items()}, {"a": "exhausted", "b": "exhausted", "c": "exhausted"})
+
+
+class AnswerTests(RunnerCase):
+    """A1: an exit-0 run that produced no answer is not a success."""
+
+    def setUp(self):
+        super().setUp()
+        self.inv(P("google:gemini", "agy"), P("anthropic", "claude"), P("kimi", "kimi"))
+
+    def run_agy(self, mode, lane=AGY):
+        os.environ["STUB_MODE"] = mode
+        with mock.patch.object(discover, "read_pool_windows", return_value=None):
+            return self.meta(self.start(lane))
+
+    def test_empty_answer_is_failed(self):
+        m = self.run_agy("empty")
+        self.assertEqual((m["status"], m["rc"], m["failure"]), ("failed", 0, "empty answer"))
+        self.assertIn("empty answer", m["note"])
+        self.assertEqual(self.row(m["job"])["status"], "failed")
+        claude = {"pool": "anthropic", "cli": "claude", "provider": None, "model": "sonnet", "effort": "low"}
+        self.assertEqual(self.run_agy("empty", claude)["status"], "failed")  # any answer_field adapter
+
+    def test_denied_actions_are_named_and_a_denied_empty_answer_fails(self):
+        m = self.run_agy("denied")
+        self.assertEqual(m["status"], "failed")
+        self.assertIn("tools denied: read_file", m["note"])
+        self.assertIn("empty answer", m["note"])
+        self.assertNotIn("/secret/path", json.dumps(m))  # action names only, never targets
+
+    def test_denied_actions_with_an_answer_stay_done_with_a_note(self):
+        m = self.run_agy("denied_answer")
+        self.assertEqual((m["status"], m["note"]), ("done", "tools denied: run_command"))
+
+    def test_adapters_without_answer_field_are_unaffected(self):
+        os.environ["STUB_MODE"] = "nowrite"  # kimi prints "done"
+        self.assertEqual(self.meta(self.start())["status"], "done")
+
+    def test_agy_read_grants_only_the_working_directory(self):
+        """A1: read mode names its read-only grant in --settings and never skips permissions."""
+        pf = self.prompt()
+        wd = '/tmp/we"ird dir'
+        argv, _ = runner.build_argv(ADAPTERS["agy"], AGY, "read", pf, self.tmp / "o", 60, cwd=wd)
+        self.assertNotIn("--dangerously-skip-permissions", argv)
+        cfg = json.loads(argv[argv.index("--settings") + 1])
+        self.assertEqual(cfg, {"permissions": {"allow": [f"read_file({wd})"]}})
+        argv, _ = runner.build_argv(ADAPTERS["agy"], AGY, "write", pf, self.tmp / "o", 60, cwd=wd)
+        self.assertNotIn("--dangerously-skip-permissions", argv)
+        self.assertNotIn("read_file", " ".join(argv))
+        self.assertIn("--settings", ADAPTERS["agy"]["required_flags"])
+        self.assertFalse([a for a in argv if "{cwd}" in a])
 
 
 class LedgerTests(RunnerCase):
