@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Safety: a lane must belong to its pool's discovered access; overage pools are re-checked at run time (exit 4); write modes need `--worktree`; `run --from <pool>|none` replaces a silently skipped own-pool check.
+- Billing: pi and opencode billing follows the credential type; every adapter strips all known provider key variables.
+- Runner: `partial` status (edited, then failed), orphaned agent process groups are reaped, ledger is 0600 with cache-relative worktrees, locked inventory writes, rollback of half-prepared jobs, empty answers are `failed`.
+- agy read mode grants read-only access through `--settings`; `denied_actions` are reported.
+- Ranking: stale (already reset) windows are quota-unknown and trigger a refresh; cursor `auto` is a lane.
+- Parallel discovery (4 workers), sturdier quota and ledger parsing.
+
 ## 2.0.0 — 2026-11-26
 
 - Renamed from token-efficient-workflow to lanes.

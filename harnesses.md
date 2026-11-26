@@ -115,7 +115,9 @@ return { traced, verdicts } // T3 synthesis happens in the main session
 
 All lanes: stdin is `/dev/null` (claude reads the prompt file on stdin), API-key variables
 (`OPENAI_API_KEY`, `CODEX_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `CURSOR_API_KEY`, ...) are stripped
-from the child so a subscription lane cannot fall through to API billing, stderr is noisy (banners, MCP
+from the child (every known provider key: also xAI, DeepSeek, Z.ai/Zhipu, DashScope, OpenRouter, Groq, Mistral and the
+Anthropic token variables; only qwen keeps the Bailian coding-plan keys, which are subscription keys) so a
+subscription lane cannot fall through to API billing, stderr is noisy (banners, MCP
 errors; the answer is in `out.txt`), and the child sees `LANES_DEPTH=1`, so `lanes run` inside it exits 3.
 A write job is judged by `git diff`, never by exit code. Pools and billing come from `lanes discover`;
 a login alone is not a plan (`logged_in_unverified` is not used until quota or `--probe` shows a plan).
@@ -126,14 +128,17 @@ plan was cancelled (they fail cheaply); expect about eight model calls, so run i
 |---|---|---|---|---|
 | claude | `claude -p "/usage" --output-format json`, 0 tokens | 5h, weekly, per-model weekly | `claude -p --model M --effort E --permission-mode plan\|acceptEdits --output-format json` | API key in env |
 | codex | `codex app-server` JSON-RPC `account/rateLimits/read` | per account (often weekly only) | `codex exec -m M -c model_reasoning_effort=E -s read-only\|workspace-write --ephemeral -o out.txt "<p>" </dev/null` | credit balance spendable after the limit |
-| agy | `agy -p "/usage" --output-format json`, 0 tokens | 5h + weekly per model group (Gemini; Claude and GPT) | `agy -p "<p>" --model M --effort E --mode plan\|accept-edits --output-format json </dev/null` | AI Credits when `useG1Credits` is on; `modelProvider: "gemini"` + key = API |
+| agy | `agy -p "/usage" --output-format json`, 0 tokens | 5h + weekly per model group (Gemini; Claude and GPT) | `agy -p "<p>" --model M --effort E --mode plan\|accept-edits --output-format json </dev/null`; read adds `--settings '{"permissions":{"allow":["read_file(<cwd>)"]}}'` | AI Credits when `useG1Credits` is on; `modelProvider: "gemini"` + key = API |
 | cursor-agent | none official; internal usage API needs the keychain token, so off by default (`cursor_read_quota`) | monthly | `cursor-agent -p --trust --model M-effort --mode ask`, `--force` to write | on-demand billing on paid plans |
 | pi | none of its own; read from the pool's official CLI | n/a | `pi -p --no-session --no-extensions --no-skills --no-context-files --no-mcp --model provider/id:effort`, read adds `--tools read,grep,find,ls` | an `openai` provider (API key) sits next to `openai-codex` (subscription) |
 | opencode | none (`stats` is local counting) | n/a | `opencode run --standalone --archived --agent plan\|build -m 'provider/model#variant'` with permissions in `OPENCODE_CONFIG_CONTENT` | without `--standalone` the shared background service uses its own env, API keys included |
 | kimi, qwen | unverified: first `--probe` on your machine decides; limits tracked reactively from error text | n/a | see `adapters.json` | qwen: `OPENAI_API_KEY`+`OPENAI_BASE_URL`+`OPENAI_MODEL` together silently switch to paid openai-compatible mode |
 
-Multi-provider CLIs (pi, opencode, qwen) are a second door into pools, not pools. Provider → pool and billing
-mapping lives in `adapters.json` (for example pi `openai-codex` and opencode `openai` OAuth → `chatgpt`;
+Multi-provider CLIs (pi, opencode, qwen) are a second door into pools, not pools. Credentials decide billing:
+pi uses `pi auth check` `authType` (`oauth` → the mapped subscription pool; anything else → `api:<provider>`);
+opencode counts a provider as the subscription only when its remaining connections (after the key strip) are OAuth,
+or it is a mapped coding plan with a stored credential, and OAuth next to a stored API key is `unknown` billing.
+Provider → pool and billing mapping lives in `adapters.json` (for example pi `openai-codex` and opencode `openai` OAuth → `chatgpt`;
 `deepseek`, `moonshotai` and pi `openai` → `api`). A pool's quota is read from its official CLI when installed
 (ChatGPT → codex RPC), otherwise tracked reactively: a limit error marks the pool `exhausted until reset`.
 The Anthropic pool is reached only through `claude`; Anthropic logins inside pi/opencode are ignored.
@@ -141,8 +146,13 @@ The Anthropic pool is reached only through `claude`; Anthropic logins inside pi/
 Per-CLI notes:
 - **claude**: the nesting guard is `--disallowedTools Agent`.
 - **codex**: model slugs and effort levels come from `codex debug models`.
-- **agy**: no shell in headless mode (tool calls are denied, exit code still 0) unless
-  `--dangerously-skip-permissions`; file edits work with `--mode accept-edits`. Model slugs carry the effort
+- **agy**: no shell in headless mode (tool calls are denied, exit code still 0, JSON `denied_actions` lists them)
+  unless `--dangerously-skip-permissions`, which read mode never uses. Read mode grants read-only access for the
+  session with `--settings '{"permissions":{"allow":["read_file(<cwd>)"]}}'` (verified live on 1.5.18; the key is
+  `permissions`, `permission` is rejected as an unknown setting; rule names are `read_file(<path>)`,
+  `write_file(<path>)`, `command(<prefix>)`, `mcp(<server>/<tool>)`, `read_url(<domain>)`). Without that grant a
+  read job returns `"response": ""` and exit 0; `lanes` marks an empty answer `failed` ("empty answer") and notes
+  "tools denied: <actions>". File edits work with `--mode accept-edits`. Model slugs carry the effort
   (`<model>-low|medium|high`), so the tier picks the slug; `--effort` is passed as well. Every call costs a
   ~26k-token input floor, so tiny jobs are not worth a lane. Jobs that need to run tests (`--needs-shell`) skip agy
   unless the `agy_allow_shell` config key is set.
@@ -168,15 +178,18 @@ caller's is refused by `lanes run` (use a native subagent), and `pick` marks it 
 |---|---|---|
 | Claude Code | `CLAUDECODE=1` | `anthropic` |
 | Codex | `CODEX_THREAD_ID` (also `CODEX_SESSION_ID`, `CODEX_CI`, `CODEX_VERSION`; `CODEX_SANDBOX` only while sandboxed) | `chatgpt` |
-| agy | `ANTIGRAVITY_AGENT` | `google:*` |
+| agy | `ANTIGRAVITY_AGENT` | `google:claude-gpt` when `model` in `~/.gemini/antigravity-cli/settings.json` starts with `claude-` or `gpt-`, else `google:gemini` |
 | cursor-agent | `CURSOR_AGENT` | `cursor` |
 | pi | `PI_CODING_AGENT` + `PI_PROVIDER` (also `PI_MODEL`, `PI_SESSION_ID`) | the pool its `PI_PROVIDER` routes to |
 | opencode | `OPENCODE_SESSION_ID` | unknown: it names no provider, pass `--from <pool>` |
 | Kimi, Qwen | none verified | pass `--from <pool>` |
+| none of the above | - | pass `--from <pool>`, or `--from none` when you are in no pool |
 
 - A CLI started from another harness's shell inherits that harness's marker, so the innermost one wins.
   `CODEX_COMPANION_*` belongs to a Claude Code Codex plugin, not to Codex.
-- When no marker is recognised `pick` and `run` need `--from <pool>`.
+- When no marker is recognised `run` exits 2 ("cannot tell your own pool; pass --from <pool> or --from none") and
+  `pick` ranks without a `native` row; `--from <pool>|none` is accepted by both. `--allow-self` overrides the
+  own-pool refusal.
 - `LANES_CACHE` (default `~/.cache/lanes`) and `LANES_CONFIG` (default `~/.config/lanes/config.json`) set on the
   command line reach the child. Config keys: `cursor_read_quota`, `agy_allow_shell`, `orchestrator_reserve_pct`.
 

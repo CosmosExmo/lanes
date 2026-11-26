@@ -78,13 +78,20 @@ approval reason`. Rows are ranked, so take the first usable row; `--n 3` gives f
 - `brake=True` means that pool's pace is above 1 and the job is not small; the row sorts later.
 - `approval=True` means api- or unknown-billed. Skip it unless the user says yes to spend.
 - A lane that cannot fit the job in its remaining quota is already dropped.
-- `pick` knows your own pool from the harness environment. If it cannot tell, pass `--from <pool>`.
+- `pick` knows your own pool from the harness environment. If it cannot tell, pass `--from <pool>`
+  (`--from none` when you are in no pool); `run` refuses with exit 2 until it knows.
+- A pool whose cached window already reset is `stale`: `pick` refreshes the inventory first and, if the new
+  window still cannot be read, ranks the pool as quota-unknown.
 
-**`run` flags** come from the `pick` row: `--pool --cli --provider --model --effort`. `--mode read|write|write_shell`;
-`write` needs `--worktree` (a fresh git worktree on branch `lanes/<job>`). `--bg` returns at once; without it
+**`run` flags** come from the `pick` row: `--pool --cli --provider --model --effort`, plus `--from <pool>|none`
+when your own pool is not detected. The lane must be one `discover` found for that pool (exit 2 otherwise).
+`--mode read|write|write_shell`; `write` and `write_shell` need `--worktree` or `--resume` (a fresh git worktree
+on branch `lanes/<job>`; exit 2 without). `--bg` returns at once; without it
 `run` waits and prints the answer. Answers land in `<cache>/jobs/<job>/out.txt`
 (`$LANES_CACHE`, default `~/.cache/lanes`); `lanes wait --json` also gives `worktree` and `branch`.
-Exit codes: 0 ok, 2 usage/environment or wait timeout, 3 nested, 4 approval needed, 6 job failed, limit or no_changes.
+Exit codes: 0 ok, 2 usage/environment or wait timeout, 3 nested, 4 approval needed (api/unknown billing, or the job
+would cross an overage pool's plan limit), 6 job failed, limit, partial or no_changes. An exit-0 run with an empty
+answer is `failed` ("empty answer"); denied tools are named in the job's `note`.
 
 ### Routing rules
 
@@ -101,10 +108,13 @@ Exit codes: 0 ok, 2 usage/environment or wait timeout, 3 nested, 4 approval need
    (T1 for small diffs). The writer pool is the pool of the lane or job that produced the diff: its `lanes run`
    row or ledger line; if you wrote it yourself, your own pool. For security, money, migration or
    infrastructure changes take two reviewers from two different pools, neither the writer's.
-4. **Money.** Lanes never cross a plan limit on their own. api/unknown billing needs `approval`; pass
+4. **Money.** Lanes never cross a plan limit on their own: `run` re-reads the quota of overage-capable pools and
+   refuses (exit 4) a job that would not fit, even if `pick` listed it. api/unknown billing needs `approval`; pass
    `--allow-spend` only after the user agreed to that spend in this conversation.
 5. **Writes** run `--mode write --worktree`, one disjoint file set per lane. A write is judged by the diff
-   (`git -C <worktree> diff`), never by exit code: status `done` means files changed, `no_changes` is a failure.
+   (`git -C <worktree> diff`), never by exit code: status `done` means files changed, `no_changes` is a failure,
+   and `partial` means files changed but the run then failed or timed out (worktree kept: read the diff, then
+   accept it, `--resume` it or discard it).
    Read the diff yourself (T3), run the tests, merge the branch. If it needs shell (tests), `--needs-shell`.
 6. **No silent fallback.** A failed or `limit` lane is reported to the user in one line; you then pick the next
    `pick` row yourself and `lanes mark <id> wasted`. A limit-cut write continues with `--resume <job>` in the same worktree.
