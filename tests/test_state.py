@@ -71,8 +71,8 @@ class StateCase(unittest.TestCase):
         self.assertIn("ts", state.read_ledger()[0])
 
     def test_redact(self):
-        out = state.redact("x a.b@c.io Bearer abc.def sk-123 eyJa.eyJb.c")
-        for s in ("a.b@c.io", "abc.def", "sk-123", "eyJa.eyJb.c"):
+        out = state.redact("x a.b@c.org Bearer abc.def sk-123 eyJa.eyJb.c")
+        for s in ("a.b@c.org", "abc.def", "sk-123", "eyJa.eyJb.c"):
             self.assertNotIn(s, out)
 
     def test_load_config_defaults(self):

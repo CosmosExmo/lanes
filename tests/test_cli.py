@@ -95,14 +95,14 @@ class TestCli(CliCase):
         self.assertFalse([c for c in calls if c[0] == "kimi" and "-p" in c])
 
     def test_install_skips_real_dir(self):
-        real = self.home / ".claude" / "skills" / "token-efficient-workflow"
+        real = self.home / ".claude" / "skills" / "lanes"
         real.mkdir(parents=True)
         (real / "keep").write_text("x")
         (self.home / ".agents" / "skills").mkdir(parents=True)
         r = self.run_cli("install")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue((real / "keep").is_file() and not real.is_symlink())
-        link = self.home / ".agents" / "skills" / "token-efficient-workflow"
+        link = self.home / ".agents" / "skills" / "lanes"
         self.assertTrue(link.is_symlink())
         self.assertEqual(link.resolve(), ROOT)
         self.assertEqual((self.home / ".local" / "bin" / "lanes").resolve(), ROOT / "scripts" / "lanes.py")

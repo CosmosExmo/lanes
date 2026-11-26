@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import discover, state
 
-SKILL = "token-efficient-workflow"
+SKILL = "lanes"
 _VER = re.compile(r"\d+(?:\.\d+)+")
 
 

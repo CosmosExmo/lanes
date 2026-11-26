@@ -1,9 +1,9 @@
 ---
-name: token-efficient-workflow
-description: Use when delegating work to subagents or other agent CLIs, or when a subscription limit is a concern. Triggers - before spawning ANY subagent, Explore/Plan agent, workflow agent, fork, parallel worker or background job; a Claude, Codex, Gemini/agy or Cursor limit or quota is filling up ("limit", "kota", "quota", "limit doldu", "weekly is at 84%"); "ask Gemini", "ask Codex", "ask Claude", "Gemini'ye sor", "Codex'e sor", "ikinci görüş", "çapraz review", "review this diff"; or the user wants a token-efficient, cheap ("ucuz") workflow, in any harness (Claude Code, Codex, agy, Cursor, pi, OpenCode, Kimi, Qwen).
+name: lanes
+description: Use when delegating work to subagents or other agent CLIs, or when a subscription limit is a concern. Triggers - "lanes"; before spawning ANY subagent, Explore/Plan agent, workflow agent, fork, parallel worker or background job; a Claude, Codex, Gemini/agy or Cursor limit or quota is filling up ("limit", "kota", "quota", "limit doldu", "weekly is at 84%"); "ask Gemini", "ask Codex", "ask Claude", "Gemini'ye sor", "Codex'e sor", "ikinci görüş", "çapraz review", "review this diff"; or the user wants a token-efficient, quota-aware, cheap ("ucuz") workflow, in any harness (Claude Code, Codex, agy, Cursor, pi, OpenCode, Kimi, Qwen).
 ---
 
-# Token-Efficient Workflow
+# Lanes
 
 Two levers. **Tiering:** the session's model is the scarcest quota, so it
 orchestrates and synthesizes and nothing else; every spawn names its model and

@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-EMAIL = "someone@example.com"
+EMAIL = "someone@example.org"
 
 
 NAME = ""

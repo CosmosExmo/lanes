@@ -327,12 +327,12 @@ class LedgerTests(RunnerCase):
     def test_ledger_row_has_no_prompt_text_or_email(self):
         os.environ["STUB_MODE"] = "json"
         pf = self.tmp / "p.txt"
-        pf.write_text("SECRET-PROMPT-TEXT mail me at boss@example.com")
+        pf.write_text("SECRET-PROMPT-TEXT mail me at boss@example.org")
         jid = runner.start_job(KIMI, "read", pf, cwd=self.tmp, worktree=False, resume=None, bg=False,
                                allow_spend=False, timeout_s=60,
-                               meta={"tier": "T1", "kind": "review", "task": "ask boss@example.com"})
+                               meta={"tier": "T1", "kind": "review", "task": "ask boss@example.org"})
         raw = (state.CACHE_DIR() / "ledger.jsonl").read_text()
-        for bad in ("SECRET-PROMPT-TEXT", "boss@example.com", "ANSWER"):
+        for bad in ("SECRET-PROMPT-TEXT", "boss@example.org", "ANSWER"):
             self.assertNotIn(bad, raw)
         r = self.row(jid)
         for k, v in dict(pool="kimi", cli="kimi", model="k3", tier="T1", kind="review", mode="read",
