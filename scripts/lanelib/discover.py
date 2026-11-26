@@ -687,13 +687,15 @@ def discover(adapters, cfg, refresh, do_probe, now):
             ok, limit = _probe(adapters, p)
             p.status = "usable" if ok else "no_plan" if limit else p.status
             p.note = "" if ok else "probe: plan or limit error" if limit else "probe failed"
-    for pid, p in pools.items():  # a limit error outranks fresh quota until its reset time passes
-        until = (old.get("pools", {}).get(pid) or {}).get("exhausted_until") or 0.0
-        if until > now:
-            p.status, p.exhausted_until = "exhausted", until
-    inv = {"version": 1, "checked_at": now,
-           "quota_at": old.get("quota_at", now) if prev and prev["quota_ok"] else now,
-           "models_at": old.get("models_at", now) if prev and prev["models_ok"] else now,
-           "pools": {pid: p.to_dict() for pid, p in pools.items()}}
-    state.write_inventory(inv)
+    with state.inventory_lock():  # re-read: a runner may have marked a pool exhausted while we were checking
+        cur = state.read_inventory(None) or {}
+        for pid, p in pools.items():  # a limit error outranks fresh quota until its reset time passes
+            until = max((src.get("pools", {}).get(pid) or {}).get("exhausted_until") or 0.0 for src in (old, cur))
+            if until > now:
+                p.status, p.exhausted_until = "exhausted", until
+        inv = {"version": 1, "checked_at": now,
+               "quota_at": old.get("quota_at", now) if prev and prev["quota_ok"] else now,
+               "models_at": old.get("models_at", now) if prev and prev["models_ok"] else now,
+               "pools": {pid: p.to_dict() for pid, p in pools.items()}}
+        state.write_inventory(inv)
     return inv

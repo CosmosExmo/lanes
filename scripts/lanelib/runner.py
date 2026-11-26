@@ -112,13 +112,14 @@ def _soonest_reset(pool, now):
 
 
 def _mark_exhausted(pool_id):
-    inv = state.read_inventory(None)
-    p = ((inv or {}).get("pools") or {}).get(pool_id)
-    if p is None:
-        return
-    now = time.time()
-    p["status"], p["exhausted_until"] = "exhausted", _soonest_reset(p, now) or now + 3600
-    state.write_inventory(inv)
+    with state.inventory_lock():
+        inv = state.read_inventory(None)
+        p = ((inv or {}).get("pools") or {}).get(pool_id)
+        if p is None:
+            return
+        now = time.time()
+        p["status"], p["exhausted_until"] = "exhausted", _soonest_reset(p, now) or now + 3600
+        state.write_inventory(inv)
 
 
 def _read_quota(m, adapters, cfg):
@@ -198,6 +199,8 @@ def _finish(m, status, rc, delta=None, failure=None):
         m["failure"] = failure
     row = {k: m.get(k) for k in ("job", "pool", "cli", "model", "effort", "tier", "kind", "task", "mode",
                                  "duration_s", "rc", "status", "worktree")}
+    if row["worktree"]:  # relative to the cache: no home path in the ledger
+        row["worktree"] = os.path.relpath(row["worktree"], state.CACHE_DIR())
     if delta:
         row["delta"] = delta
     state.append_ledger({**row, "outcome": None})  # ledger first: a finished meta implies a ledger row
@@ -206,10 +209,18 @@ def _finish(m, status, rc, delta=None, failure=None):
 
 # ---- execution ---------------------------------------------------------------------------------
 
+class GitFailed(RuntimeError):
+    pass
+
+
 def _snapshot(wt):
     """Fingerprint of a worktree: HEAD, status, tracked diff and the content of untracked files
     (`git diff HEAD` ignores those, and a resumed job usually edits what job 1 created)."""
-    g = lambda *a: discover.run_cmd(["git", "-C", str(wt), *a], 60).stdout
+    def g(*a):
+        r = discover.run_cmd(["git", "-C", str(wt), *a], 60)
+        if r.returncode:  # an unreadable worktree must never look like "nothing changed"
+            raise GitFailed("git status failed")
+        return r.stdout
     h = hashlib.sha1()
     for part in (g("rev-parse", "HEAD"), g("status", "--porcelain"), g("diff", "HEAD")):
         h.update(part.encode(errors="replace") + b"\0")
@@ -247,6 +258,9 @@ def _spawn(spec, m, env, timeout_s):
         with open(spec["stdin"], "rb") as stdin:
             p = subprocess.Popen(spec["argv"], cwd=m["cwd"], env=env, stdin=stdin, stdout=fds[0], stderr=fds[1],
                                  start_new_session=True)
+            if m.get("status") == "running":  # a dead wrapper's reaper needs this to find the agent
+                m["pgid"] = p.pid
+                _save_meta(m)
             try:
                 return p.wait(timeout_s)
             except subprocess.TimeoutExpired:
@@ -296,7 +310,12 @@ def _execute(m):
         status = "limit"
         _mark_exhausted(m["pool"])
     elif m["worktree"]:  # a write job is judged by what changed in its worktree, not by the exit code
-        status = "done" if _snapshot(m["worktree"]) != m["snap"] else "no_changes" if rc == 0 else "failed"
+        try:
+            changed = _snapshot(m["worktree"]) != m["snap"]
+        except GitFailed as e:
+            _finish(m, "failed", rc, delta, str(e))
+            return
+        status = ("done" if rc == 0 else "partial") if changed else "no_changes" if rc == 0 else "failed"
     else:
         status = "done" if rc == 0 else "failed"
     _finish(m, status, rc, delta, fail if status == "failed" else None)
@@ -337,6 +356,16 @@ def exec_job(job_id):
     return m
 
 
+def _rollback(jd, cwd, wt, branch):
+    """Undo a half-prepared job: its dir, and a worktree + branch this call created."""
+    if wt is not None:
+        discover.run_cmd(["git", "-C", str(cwd), "worktree", "remove", "--force", str(wt)], 60)
+        shutil.rmtree(wt, ignore_errors=True)
+        discover.run_cmd(["git", "-C", str(cwd), "worktree", "prune"], 60)
+        discover.run_cmd(["git", "-C", str(cwd), "branch", "-D", branch], 60)
+    shutil.rmtree(jd, ignore_errors=True)
+
+
 def refuse_nested():
     if os.environ.get("LANES_DEPTH"):
         _die(3, "nested delegation refused: lanes run is not allowed inside a lanes worker")
@@ -375,34 +404,42 @@ def start_job(lane, mode, prompt_file, *, cwd, worktree, resume, bg, allow_spend
     jd = state.job_dir(jid)
     os.chmod(jd, 0o700)
     wt = branch = snap = None
-    if use_wt:
-        if resume:
-            wt, branch = state.CACHE_DIR() / "worktrees" / _jid(resume), "lanes/" + resume
-            if not wt.is_dir():
-                shutil.rmtree(jd)
-                _die(2, f"unknown worktree: {resume}")
-        else:
-            wt, branch = state.CACHE_DIR() / "worktrees" / jid, "lanes/" + jid
-            r = discover.run_cmd(["git", "-C", str(cwd), "worktree", "add", "-b", branch, str(wt), "HEAD"], 60)
-            if r.returncode:
-                shutil.rmtree(jd)
-                _die(2, "git worktree add failed (does the repo have a commit?)")
-        snap = _snapshot(wt)
-    _put(jd / "prompt.txt", PREAMBLE + "\n\n" + Path(prompt_file).read_text())
-    for n in ("stdout.txt", "stderr.txt", "out.txt"):
-        _put(jd / n)
-    argv, stdin = build_argv(a, lane, mode, jd / "prompt.txt", jd / "out.txt", timeout_s)
-    _put(jd / "argv.json", json.dumps({"argv": argv, "stdin": stdin}))
-    _save_meta({"job": jid, "status": "running", "pool": lane["pool"], "cli": lane["cli"],
-                "provider": lane.get("provider"), "model": lane["model"], "effort": lane.get("effort") or "",
-                "mode": mode, "tier": meta.get("tier"), "kind": meta.get("kind"),
-                "task": state.redact(str(meta.get("task") or ""))[:120], "cwd": str(wt or cwd),
-                "worktree": str(wt) if wt else None, "branch": branch, "snap": snap, "resume_of": resume,
-                "started": time.time(), "timeout_s": timeout_s, "est_cost": est})
+    made_wt = False
+    try:
+        if use_wt:
+            if resume:
+                wt, branch = state.CACHE_DIR() / "worktrees" / _jid(resume), "lanes/" + resume
+                if not wt.is_dir():
+                    _die(2, f"unknown worktree: {resume}")
+            else:
+                wt, branch = state.CACHE_DIR() / "worktrees" / jid, "lanes/" + jid
+                r = discover.run_cmd(["git", "-C", str(cwd), "worktree", "add", "-b", branch, str(wt), "HEAD"], 60)
+                if r.returncode:
+                    _die(2, "git worktree add failed (does the repo have a commit?)")
+                made_wt = True
+            snap = _snapshot(wt)
+        _put(jd / "prompt.txt", PREAMBLE + "\n\n" + Path(prompt_file).read_text())
+        for n in ("stdout.txt", "stderr.txt", "out.txt"):
+            _put(jd / n)
+        argv, stdin = build_argv(a, lane, mode, jd / "prompt.txt", jd / "out.txt", timeout_s)
+        _put(jd / "argv.json", json.dumps({"argv": argv, "stdin": stdin}))
+        _save_meta({"job": jid, "status": "running", "pool": lane["pool"], "cli": lane["cli"],
+                    "provider": lane.get("provider"), "model": lane["model"], "effort": lane.get("effort") or "",
+                    "mode": mode, "tier": meta.get("tier"), "kind": meta.get("kind"),
+                    "task": state.redact(str(meta.get("task") or ""))[:120], "cwd": str(wt or cwd),
+                    "worktree": str(wt) if wt else None, "branch": branch, "snap": snap, "resume_of": resume,
+                    "started": time.time(), "timeout_s": timeout_s, "est_cost": est})
+    except GitFailed as e:
+        _rollback(jd, cwd, wt if made_wt else None, branch)
+        _die(2, str(e))
+    except BaseException:
+        _rollback(jd, cwd, wt if made_wt else None, branch)
+        raise
     if bg:
         code = "import sys; sys.path.insert(0, sys.argv[1]); from lanelib import runner; runner.exec_job(sys.argv[2])"
-        subprocess.Popen([sys.executable, "-I", "-c", code, str(SCRIPTS), jid], start_new_session=True,
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        p = subprocess.Popen([sys.executable, "-I", "-c", code, str(SCRIPTS), jid], start_new_session=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        p.returncode = 0  # detached on purpose: nobody waits for it, so no "still running" ResourceWarning
     else:
         exec_job(jid)
     return jid
@@ -413,6 +450,11 @@ def start_job(lane, mode, prompt_file, *, cwd, worktree, resume, bg, allow_spend
 def _reap(m):
     """A background job whose process vanished without finishing is failed, not running forever."""
     if m["status"] == "running" and m.get("pid") and not _alive(m["pid"]):
+        if m.get("pgid"):
+            try:  # ponytail: a recycled pgid could hit a stranger; check the leader's start time if it ever bites
+                os.killpg(m["pgid"], signal.SIGKILL)
+            except OSError:
+                pass
         _finish(m, "failed", None, failure="died")
     return m
 

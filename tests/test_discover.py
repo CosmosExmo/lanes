@@ -368,6 +368,25 @@ class Discover(Base):
             k = self.run_discover(refresh=refresh)["pools"]["kimi"]
             self.assertEqual((k["status"], k["exhausted_until"]), ("exhausted", NOW + 1800))
 
+    def test_exhaustion_mark_landing_during_discovery_survives(self):
+        """I5: discovery's write is a locked read-modify-write; a limit mark written meanwhile is kept."""
+        self.put(".codex/auth.json", {"auth_mode": "chatgpt"})
+        self.mode("ok")
+        self.run_discover()
+        real = discover.check_kimi
+
+        def late_mark(*a, **k):  # a runner marks chatgpt exhausted while discovery is still checking
+            inv = state.read_inventory(None)
+            inv["pools"]["chatgpt"].update(status="exhausted", exhausted_until=NOW + 3600)
+            state.write_inventory(inv)
+            return real(*a, **k)
+
+        with mock.patch.object(discover, "check_kimi", late_mark):
+            inv = self.run_discover(refresh=True)
+        self.assertEqual((inv["pools"]["chatgpt"]["status"], inv["pools"]["chatgpt"]["exhausted_until"]),
+                         ("exhausted", NOW + 3600))
+        self.assertEqual(state.read_inventory(None)["pools"]["chatgpt"]["status"], "exhausted")
+
     def test_past_exhausted_until_is_cleared(self):
         self.seed_exhausted(NOW - 5)
         k = self.run_discover()["pools"]["kimi"]

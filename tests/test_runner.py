@@ -256,7 +256,7 @@ class WorktreeTests(RunnerCase):
         self.assertIn(f"lanes/{jid}", self.git_out(repo, "branch", "--list"))
         m = self.meta(jid)
         self.assertEqual((m["status"], m["worktree"]), ("done", str(wt)))
-        self.assertEqual(self.row(jid)["worktree"], str(wt))
+        self.assertEqual(self.row(jid)["worktree"], f"worktrees/{jid}")  # I4: relative to the cache, no home path
 
     def test_child_pwd_follows_the_worktree(self):
         """Real opencode wrote into the launching checkout because $PWD still named it."""
@@ -268,6 +268,40 @@ class WorktreeTests(RunnerCase):
         with mock.patch.dict(os.environ, {"PWD": str(self.tmp)}):
             runner._spawn(spec, {"job": "j1", "cwd": str(wt)}, dict(os.environ), 30)
         self.assertEqual((jd / "stdout.txt").read_text().split(), [str(wt), str(wt.resolve())])
+
+    def test_changes_with_a_nonzero_exit_are_partial_and_kept(self):
+        """I2: edits plus a failing exit code is neither done nor failed: the worktree is kept for review."""
+        os.environ["STUB_MODE"] = "writefail"
+        repo = self.repo()
+        jid = self.start(mode="write", cwd=repo, worktree=True)
+        wt = state.CACHE_DIR() / "worktrees" / jid
+        self.assertEqual((self.meta(jid)["status"], self.meta(jid)["rc"]), ("partial", 1))
+        self.assertEqual(self.row(jid)["status"], "partial")
+        self.assertEqual((wt / "stub_output.txt").read_text(), "partial")
+        os.environ["STUB_MODE"] = "broken"  # no edits and a failing exit stays failed
+        self.assertEqual(self.meta(self.start(mode="write", cwd=repo, worktree=True))["status"], "failed")
+
+    def test_git_failure_after_the_run_is_failed_not_no_changes(self):
+        """M3"""
+        os.environ["STUB_MODE"] = "breakgit,nowrite"
+        jid = self.start(mode="write", cwd=self.repo(), worktree=True)
+        m = self.meta(jid)
+        self.assertEqual((m["status"], m["failure"]), ("failed", "git status failed"))
+        self.assertEqual(self.row(jid)["status"], "failed")
+
+    def test_preparation_failure_rolls_back_worktree_branch_and_job_dir(self):
+        """M3"""
+        repo = self.repo()
+        for patch in (mock.patch.object(runner, "_snapshot", side_effect=RuntimeError("git status failed")),
+                      mock.patch.object(runner, "build_argv", side_effect=SystemExit(2))):
+            with patch, mock.patch("sys.stderr", io.StringIO()):
+                with self.assertRaises((SystemExit, RuntimeError)):
+                    self.start(mode="write", cwd=repo, worktree=True)
+            self.assertEqual(self.jobs(), [])
+            wts = state.CACHE_DIR() / "worktrees"
+            self.assertEqual(os.listdir(wts) if wts.is_dir() else [], [])
+            self.assertNotIn("lanes/", self.git_out(repo, "branch", "--list"))
+            self.assertNotIn("lanes/", self.git_out(repo, "worktree", "list"))
 
     def test_write_job_without_diff_is_no_changes(self):
         os.environ["STUB_MODE"] = "nowrite"
@@ -351,6 +385,33 @@ class ExecTests(RunnerCase):
         self.assertLess(time.time() - t, 3)
         self.assertEqual(runner.wait_jobs(["20200101-000000-dead"], 1)[0]["status"], "unknown")
 
+    def test_dead_wrapper_takes_its_agent_process_group_with_it(self):
+        """I3: a wrapper that dies leaves the agent (own session) running; reaping must kill that group."""
+        slow = self.tmp / "bin"
+        slow.mkdir()
+        (slow / "kimi").write_text("#!/bin/sh\ntrap '' TERM HUP\nsleep 60\n")
+        (slow / "kimi").chmod(0o755)
+        os.environ["PATH"] = f"{slow}{os.pathsep}{os.environ['PATH']}"
+        jid = self.start(bg=True, timeout_s=120)
+        for _ in range(100):
+            m = self.meta(jid)
+            if m.get("pgid") and m.get("pid"):
+                break
+            time.sleep(0.1)
+        self.assertTrue(m.get("pgid"), "meta carries the agent's process group id")
+        os.kill(m["pid"], signal.SIGKILL)
+        os.waitpid(m["pid"], 0)  # the wrapper was our child: no zombie that still answers kill(pid, 0)
+        os.killpg(m["pgid"], 0)  # the agent group outlives its wrapper
+        self.assertEqual(runner.wait_jobs([jid], 5)[0]["status"], "failed")
+        for _ in range(50):
+            try:
+                os.killpg(m["pgid"], 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.1)
+        else:
+            self.fail("agent process group survived the reap")
+
     def test_timeout_kills_the_job(self):
         slow = self.tmp / "bin"
         slow.mkdir()
@@ -405,7 +466,35 @@ class ExecTests(RunnerCase):
         self.assertIn("do the thing", (d / "prompt.txt").read_text())
 
 
+class InventoryLockTests(RunnerCase):
+    def test_concurrent_exhaustion_marks_both_survive(self):
+        """I5: _mark_exhausted is a locked read-modify-write; a slow write must not eat another mark."""
+        self.inv(P("a", "kimi"), P("b", "kimi"), P("c", "kimi"))
+        real = state.write_inventory
+
+        def slow(inv):
+            time.sleep(0.1)  # widen the race window
+            real(inv)
+
+        with mock.patch.object(state, "write_inventory", slow):
+            ts = [threading.Thread(target=runner._mark_exhausted, args=(x,)) for x in "abc"]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
+        pools = state.read_inventory(None)["pools"]
+        self.assertEqual({k: v["status"] for k, v in pools.items()}, {"a": "exhausted", "b": "exhausted", "c": "exhausted"})
+
+
 class LedgerTests(RunnerCase):
+    def test_ledger_file_is_private(self):
+        """I4"""
+        self.start()
+        self.assertEqual((state.CACHE_DIR() / "ledger.jsonl").stat().st_mode & 0o777, 0o600)
+        (state.CACHE_DIR() / "ledger.jsonl").chmod(0o644)  # an older, world-readable ledger is tightened
+        self.start()
+        self.assertEqual((state.CACHE_DIR() / "ledger.jsonl").stat().st_mode & 0o777, 0o600)
+
     def test_ledger_row_has_no_prompt_text_or_email(self):
         os.environ["STUB_MODE"] = "json"
         pf = self.tmp / "p.txt"

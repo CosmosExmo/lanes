@@ -171,6 +171,23 @@ class TestCli(CliCase):
         ok = self.run_cli(*args, STUB_MODE="ok")
         self.assertEqual(ok.returncode, 0, ok.stderr)
 
+    def test_partial_write_job_exits_6(self):
+        self.inv()
+        repo = self.tmp / "repo"
+        repo.mkdir()
+        for a in (["init", "-q"], ["add", "."], ["commit", "-qm", "i"]):
+            (repo / "a").write_text("a")
+            subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a],
+                           check=True, capture_output=True)
+        args, _ = self._run_args("")
+        args[args.index("read")] = "write"
+        r = subprocess.run([sys.executable, str(ROOT / "scripts" / "lanes.py"), *args, "--worktree", "--json"],
+                           capture_output=True, text=True, env={**self.env, "STUB_MODE": "writefail"}, cwd=repo)
+        self.assertEqual(r.returncode, 6, r.stdout + r.stderr)
+        self.assertRegex(r.stderr, r"\S+ partial kimi kimi")
+        self.assertIn("worktree kept", r.stderr)
+        self.assertEqual(json.loads(r.stdout)["status"], "partial")
+
     def test_wait_limit_job_exits_6(self):
         self.inv()
         args, _ = self._run_args("limit")

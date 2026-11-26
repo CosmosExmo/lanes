@@ -42,6 +42,12 @@ def model_call(out_path=None):
         key = {"cursor-agent": "cursor"}.get(NAME, NAME)
         sys.stderr.write(json.load(open(ROOT / "adapters.json"))[key]["limit_error_patterns"][0] + "\n")
         sys.exit(1)
+    if has("writefail"):  # edits, then dies: the job is partial work, not a clean failure
+        Path("stub_output.txt").write_text("partial")
+        sys.stderr.write("Error: something broke\n")
+        sys.exit(1)
+    if has("breakgit"):  # the worktree stops being a git checkout while the agent runs
+        os.remove(".git")
     if has("write") or has("write2"):
         Path("stub_output.txt").write_text("changed again" if has("write2") else "changed")
     if has("write") or has("write2") or has("nowrite") or has("json"):

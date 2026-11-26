@@ -1,4 +1,6 @@
 """State: inventory cache, ledger, job dirs, config, redaction. Stdlib only."""
+import contextlib
+import fcntl
 import json
 import os
 import re
@@ -38,6 +40,19 @@ def read_inventory(max_age_s):
         return None
 
 
+@contextlib.contextmanager
+def inventory_lock():
+    """Exclusive lock around an inventory read-modify-write (discover's write, the runner's exhaustion mark)."""
+    d = CACHE_DIR()
+    d.mkdir(parents=True, exist_ok=True)
+    fd = os.open(d / "inventory.lock", os.O_WRONLY | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)  # closing releases the lock
+
+
 def write_inventory(inv: dict) -> None:
     d = CACHE_DIR()
     d.mkdir(parents=True, exist_ok=True)
@@ -57,8 +72,9 @@ def write_inventory(inv: dict) -> None:
 def _write_row(row: dict) -> None:
     d = CACHE_DIR()
     d.mkdir(parents=True, exist_ok=True)
-    fd = os.open(d / "ledger.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    fd = os.open(d / "ledger.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     try:
+        os.fchmod(fd, 0o600)  # an older ledger may be world-readable
         os.write(fd, (json.dumps(row) + "\n").encode())
     finally:
         os.close(fd)

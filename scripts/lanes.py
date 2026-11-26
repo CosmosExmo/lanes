@@ -98,7 +98,7 @@ def cmd_run(args):
 
 
 def verdict(ms):
-    """0 all done; 2 still running (timeout); 6 any failed/limit/no_changes. One stderr line per bad job."""
+    """0 all done; 2 still running (timeout); 6 any failed/limit/partial/no_changes. One stderr line per bad job."""
     code = 0
     pools = (state.read_inventory(None) or {}).get("pools") or {}
     for m in ms:
@@ -114,6 +114,8 @@ def verdict(ms):
             until = (pools.get(m.get("pool")) or {}).get("exhausted_until")
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until)) if until else "its next reset"
             line += f"; pool exhausted until {when}; pick the next lane"
+        if st == "partial":
+            line += f"; the run failed after editing, worktree kept at {m.get('worktree')}; review or resume it"
         sys.stderr.write(state.redact(line) + "\n")
         code = 6
     return code
@@ -183,7 +185,7 @@ def cmd_exec(args):
 def main(argv=None):
     p = argparse.ArgumentParser(
         prog="lanes", epilog="exit codes: 0 ok, 2 usage/environment error or wait timeout, 3 nested, "
-        "4 approval needed, 5 selftest failure, 6 job failed/limit/no_changes")
+        "4 approval needed, 5 selftest failure, 6 job failed/limit/partial/no_changes")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def add(name, fn, **kw):
