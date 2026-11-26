@@ -509,6 +509,12 @@ class Misc(Base):
         pi = {"PI_CODING_AGENT": "true", "PI_PROVIDER": "openai-codex", "CLAUDECODE": "1"}
         self.assertEqual(discover.detect_self_pool(pi, ADAPTERS), "chatgpt")
         self.assertEqual(discover.detect_self_pool({**pi, "PI_PROVIDER": "xai"}, ADAPTERS), "xai")
+        # pi never maps to an unrouted or api-billed pool
+        self.assertIsNone(discover.detect_self_pool({**pi, "PI_PROVIDER": "anthropic"}, ADAPTERS))
+        self.assertIsNone(discover.detect_self_pool({**pi, "PI_PROVIDER": "openai"}, ADAPTERS))
+        # the innermost harness wins: pi under a Codex shell (inherited CODEX_THREAD_ID)
+        self.assertEqual(discover.detect_self_pool({**pi, "CODEX_THREAD_ID": "t", "PI_PROVIDER": "xai"}, ADAPTERS), "xai")
+        self.assertIsNone(discover.detect_self_pool({**pi, "CODEX_THREAD_ID": "t", "PI_PROVIDER": "anthropic"}, ADAPTERS))
         self.assertIsNone(discover.detect_self_pool({**pi, "PI_PROVIDER": "unlisted"}, ADAPTERS))
         # opencode's session id alone does not name a pool; the user's own OPENCODE_* settings are not a marker
         self.assertIsNone(discover.detect_self_pool({"OPENCODE_SESSION_ID": "s", "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1"}))

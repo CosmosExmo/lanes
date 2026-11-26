@@ -574,20 +574,25 @@ def probe(adapters, pool, cli=None):
     return _probe(adapters, pool, cli)[0]
 
 
-# Env vars each harness sets in its tool shell (seen live 2026-11-26); innermost harness first, because
-# a CLI started from Claude Code's shell inherits CLAUDECODE=1 as well.
+# Env vars each harness sets in its tool shell (seen live 2026-11-26).
 SELF_MARKERS = (("CODEX_THREAD_ID", "chatgpt"), ("ANTIGRAVITY_AGENT", "google:gemini"), ("CURSOR_AGENT", "cursor"))
 
 
 def detect_self_pool(env, adapters=None):
-    """Pool the calling harness bills against, or None. opencode sets OPENCODE_SESSION_ID but no
-    provider variable, so its pool is unknowable; pi names it in PI_PROVIDER."""
+    """Pool the calling harness bills against, or None.
+
+    Order matters because a child harness inherits its parent's markers: pi first (it is the one that
+    runs under Codex/Claude shells and sets its own), then Codex, agy and cursor, and CLAUDECODE last
+    (any CLI started from Claude Code's shell inherits CLAUDECODE=1). pi names its pool in PI_PROVIDER;
+    only a routed subscription provider maps (never an api-billed or unrouted one such as anthropic),
+    anything else is None, and pi never falls through to a parent's marker. opencode sets
+    OPENCODE_SESSION_ID but no provider variable, so its pool is unknowable."""
+    if env.get("PI_CODING_AGENT"):
+        prov = ((adapters or {}).get("pi") or {}).get("providers", {}).get(env.get("PI_PROVIDER", ""), {})
+        return prov.get("pool") if prov.get("route") and prov.get("billing") == "subscription" else None
     for var, pool in SELF_MARKERS:
         if env.get(var):
             return pool
-    if env.get("PI_CODING_AGENT"):
-        prov = ((adapters or {}).get("pi") or {}).get("providers", {}).get(env.get("PI_PROVIDER", ""), {})
-        return prov.get("pool")
     return "anthropic" if env.get("CLAUDECODE") == "1" else None
 
 
