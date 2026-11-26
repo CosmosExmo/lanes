@@ -50,6 +50,7 @@ class Pool:
     note: str
     checked_at: float
     access: list = field(default_factory=list)  # [{cli, provider|None, models}], official CLI first
+    exhausted_until: float = 0.0  # set by the runner on a limit error; 0 = not marked
 
     def to_dict(self):
         return asdict(self)

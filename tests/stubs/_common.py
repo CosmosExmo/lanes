@@ -8,7 +8,12 @@ ROOT = Path(__file__).resolve().parents[2]
 EMAIL = "someone@example.com"
 
 
+NAME = ""
+
+
 def log(name):
+    global NAME
+    NAME = name
     p = os.environ.get("STUB_LOG")
     if p:
         with open(p, "a") as f:
@@ -32,7 +37,18 @@ def show_help(key):
 
 
 def model_call(out_path=None):
-    """Pretend to send the probe prompt to a model."""
+    """Pretend to send the probe prompt (or a runner job) to a model."""
+    if has("limit"):  # print this CLI's first limit pattern, like a real plan error
+        key = {"cursor-agent": "cursor"}.get(NAME, NAME)
+        sys.stderr.write(json.load(open(ROOT / "adapters.json"))[key]["limit_error_patterns"][0] + "\n")
+        sys.exit(1)
+    if has("write"):
+        Path("stub_output.txt").write_text("changed")
+    if has("write") or has("nowrite") or has("json"):
+        if out_path:
+            Path(out_path).write_text("ANSWER")
+        print(json.dumps({"result": "ANSWER", "response": "ANSWER"}) if has("json") else "done")
+        return
     if has("ok"):
         if out_path:
             Path(out_path).write_text("OK")
