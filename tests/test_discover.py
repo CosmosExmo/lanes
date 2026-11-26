@@ -158,10 +158,14 @@ class SingleCheck(Base):
         self.assertEqual((p.status, p.overage), ("usable", True))
         self.assertEqual(p.windows[0].used_pct, 1.0)
 
-    def test_cursor_api_key_env_is_api_billing(self):
-        os.environ["CURSOR_API_KEY"] = "key"
-        (p,) = discover.check_cursor(self.adapters, state.load_config(), NOW)
-        self.assertEqual((p.status, p.billing), ("api_billing", "api"))
+    def test_stripped_env_key_does_not_mark_api_billing(self):
+        for k in ("CURSOR_API_KEY", "CURSOR_AUTH_TOKEN", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+            os.environ[k] = "key"
+        (c,) = discover.check_cursor(self.adapters, state.load_config(), NOW)
+        self.assertEqual((c.status, c.billing), ("logged_in_unverified", "subscription"))
+        ps = discover.check_agy(self.adapters, NOW)
+        self.assertEqual({(p.id, p.status, p.billing) for p in ps},
+                         {("google:gemini", "usable", "subscription"), ("google:claude-gpt", "usable", "subscription")})
 
     def test_kimi_logged_in_is_unverified(self):
         (p,) = discover.check_kimi(self.adapters, NOW)
@@ -344,6 +348,23 @@ class Discover(Base):
         c = self.run_discover()["pools"]["chatgpt"]
         self.assertEqual((c["cli"], c["billing"], c["status"]), ("pi", "subscription", "logged_in_unverified"))
         self.assertEqual([a["cli"] for a in c["access"]], ["pi"])
+
+    def test_context_window_error_is_not_limit(self):
+        for cli, a in self.adapters.items():
+            for text in ("Error: context window exceeded", "request quota of tokens per message exceeded",
+                         "please upgrade your client", "429 too many open files"):
+                self.assertFalse(discover.is_limit_error(a, text), (cli, text))
+        self.assertTrue(discover.is_limit_error(self.adapters["codex"], "You've hit your USAGE LIMIT, try later"))
+        self.assertTrue(discover.is_limit_error(self.adapters["agy"], "code: resource_exhausted"))
+        self.assertTrue(discover.is_limit_error(self.adapters["opencode"], "CreditLimitExceeded"))
+
+    def test_child_env_strips_keys_and_applies_mode_env(self):
+        os.environ["CURSOR_API_KEY"] = "k"
+        self.assertNotIn("CURSOR_API_KEY", discover.child_env(self.adapters["cursor"]))
+        oc = self.adapters["opencode"]
+        self.assertIn("subagent", discover.child_env(oc, "read")["OPENCODE_CONFIG_CONTENT"])
+        self.assertIn("edit", discover.child_env(oc, "read")["OPENCODE_CONFIG_CONTENT"])
+        self.assertNotIn("edit", discover.child_env(oc, "write")["OPENCODE_CONFIG_CONTENT"])
 
     def test_probe_generic_failure_stays_unverified(self):
         inv = self.run_discover(probe=True)

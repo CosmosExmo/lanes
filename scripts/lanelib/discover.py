@@ -87,7 +87,12 @@ def fill_template(tpl, **kw):
 
 
 def child_env(a, mode=None):
-    """Environment for a child CLI: API-key vars stripped, adapter env (and per-mode env) added."""
+    """The ONLY way to build a child CLI's environment (discovery, probes and Task 5's runner).
+
+    Contract: os.environ minus the adapter's `env_strip` keys, plus adapter `env`, plus
+    `env_mode[mode]` (mode is "read" or "write"; per-mode settings such as opencode's deny
+    config live only there, so always pass the mode). Billing must be judged against this
+    environment, never os.environ, because a stripped key never reaches the child."""
     env = {k: v for k, v in os.environ.items() if k not in a["env_strip"]}
     env.update(a.get("env", {}))
     env.update(a.get("env_mode", {}).get(mode, {}))
@@ -341,7 +346,7 @@ def check_agy(adapters, now, prev=None):
             p.status, p.note = ps[AGY_POOLS[0]].status, ps[AGY_POOLS[0]].note
         return list(ps.values())
     settings = _read_json(_home() / ".gemini" / "antigravity-cli" / "settings.json")
-    api = settings.get("modelProvider") == "gemini" or bool(os.environ.get("GEMINI_API_KEY"))
+    api = settings.get("modelProvider") == "gemini"  # GEMINI_API_KEY alone has no effect (and is stripped)
     ws, overage = {}, False
     if not api:
         cached = [_prev(prev, pid, "quota_ok") for pid in AGY_POOLS]
@@ -381,9 +386,6 @@ def check_cursor(adapters, cfg, now, prev=None):
     a = adapters["cursor"]
     p = _new("cursor", "cursor", now)
     if _gate(p, a):
-        return [p]
-    if os.environ.get("CURSOR_API_KEY") or os.environ.get("CURSOR_AUTH_TOKEN"):
-        p.status, p.billing = "api_billing", "api"
         return [p]
     if not _json_cmd(a, ["status", "--format", "json"], 20).get("isAuthenticated"):
         p.status = "not_logged_in"
@@ -467,8 +469,8 @@ def _opencode_providers(a):
     return out
 
 
-def _qwen_base_url(settings):
-    env = os.environ.get("OPENAI_BASE_URL")
+def _qwen_base_url(settings, a):
+    env = child_env(a).get("OPENAI_BASE_URL")
     if env:
         return env
     entries = (settings.get("modelProviders") or {}).get("openai") or []
@@ -491,7 +493,7 @@ def _check_qwen(adapters, now):
     sel = ((s.get("security") or {}).get("auth") or {}).get("selectedType")
     signed = "tokens" in _read_json(_home() / ".qwen" / "subscription_credentials.json")
     if sel == "openai":
-        host = urlparse(_qwen_base_url(s) or "").hostname
+        host = urlparse(_qwen_base_url(s, a) or "").hostname
         kind = "subscription" if host in QWEN_CODING_HOSTS else "api"
     elif sel in (None, "qwen-subscription"):
         kind = "subscription" if signed else None
@@ -552,7 +554,13 @@ def _probe(adapters, pool):
         except OSError:
             text = r.stdout + r.stderr
     ok = r.returncode == 0 and re.search(r"\bOK\b", text) is not None
-    return ok, (not ok) and any(re.search(x, text, re.I) for x in a["limit_error_patterns"])
+    return ok, (not ok) and is_limit_error(a, text)
+
+
+def is_limit_error(a, text):
+    """True when CLI output contains one of the adapter's limit/plan error strings (case-insensitive substring)."""
+    low = text.lower()
+    return any(x.lower() in low for x in a["limit_error_patterns"])
 
 
 def probe(adapters, pool):

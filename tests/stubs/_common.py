@@ -38,6 +38,6 @@ def model_call(out_path=None):
             Path(out_path).write_text("OK")
         print("OK")
         return
-    sys.stderr.write("Error: you have no active subscription plan\n" if has("plan_error")
+    sys.stderr.write("Error: code=QUOTA_EXHAUSTED rate_limit_reached usage_limit_reached\n" if has("plan_error")
                      else "Error: something broke\n")
     sys.exit(1)
