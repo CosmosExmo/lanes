@@ -52,8 +52,15 @@ def cmd_discover(args):
     emit(args, inv, [fmt_pool(p, now) for p in inv["pools"].values()])
 
 
+def stale_windows(inv, now):
+    return any(p["status"] in ("usable", "exhausted", "quota_unknown") and any(w["resets_at"] <= now for w in p["windows"])
+               for p in inv["pools"].values())
+
+
 def cmd_pick(args):
     inv = load_inv()
+    if stale_windows(inv, time.time()):  # a cached window already reset: read the new one before ranking
+        inv = discover.discover(runner.load_adapters(), state.load_config(), True, False, time.time())
     pools = {k: discover.Pool.from_dict(v) for k, v in inv["pools"].items()}
     caps = json.loads((REPO / "capabilities.json").read_text())
     req = pick.Request(args.tier, args.kind, args.task or "", args.needs_shell, args.author_pool,

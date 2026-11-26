@@ -53,6 +53,20 @@ class TestCli(CliCase):
         self.assertEqual(set(rows[0]), set(Candidate.__dataclass_fields__))
         self.assertEqual(rows[0]["pool"], "kimi")
 
+    def test_pick_refreshes_when_a_usable_pool_has_an_expired_window(self):
+        """I6"""
+        log = self.tmp / "stub.log"
+        stale = {**POOL, "windows": [{**POOL["windows"][0], "resets_at": NOW - 100}]}
+        state.write_inventory({"version": 1, "checked_at": NOW, "quota_at": NOW, "models_at": NOW,
+                               "pools": {"kimi": stale}})
+        calls = lambda: [json.loads(x) for x in log.read_text().splitlines()] if log.exists() else []
+        self.run_cli("pick", "--tier", "T0", "--kind", "read", "--json", STUB_LOG=str(log))
+        self.assertIn(["kimi", "provider", "list"], calls())  # discover ran again
+        log.unlink()
+        self.inv()  # fresh windows: no refresh
+        self.run_cli("pick", "--tier", "T0", "--kind", "read", "--json", STUB_LOG=str(log))
+        self.assertEqual(calls(), [])
+
     def test_pick_text(self):
         self.inv()
         r = self.run_cli("pick", "--tier", "T0", "--kind", "read")

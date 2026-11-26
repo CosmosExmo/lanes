@@ -52,7 +52,9 @@ def size_class(tier, kind):
 def estimate_cost(pool, tier, kind, window, ledger):
     rows = [r["delta"][window] for r in ledger
             if r.get("pool") == pool and r.get("tier") == tier and r.get("kind") == kind
-            and isinstance(r.get("delta"), dict) and window in r["delta"]]
+            and isinstance(r.get("delta"), dict) and window in r["delta"]
+            and isinstance(r["delta"][window], (int, float)) and not isinstance(r["delta"][window], bool)
+            and r["delta"][window] >= 0]
     if len(rows) >= 3:
         return statistics.median(rows[-10:])
     return DEFAULT_COST.get(window, DEFAULT_COST["weekly"])[size_class(tier, kind)]
@@ -99,7 +101,10 @@ def rank(pools, caps, adapters, cfg, req, ledger, now):
         cap, acc, model, effort = lane
         native = p.id == req.from_pool
         # a model-scoped window (weekly:fable) only constrains that model
-        ws = [w for w in p.windows if ":" not in w.name or w.name.split(":", 1)[1] in model]
+        scoped = [w for w in p.windows if ":" not in w.name or w.name.split(":", 1)[1] in model]
+        # a window whose reset already passed is stale (its replacement is unread), not "0% used": treat as unknown
+        ws = [w for w in scoped if w.resets_at > now]
+        stale = len(ws) < len(scoped)
         hrs = {w.name: max((w.resets_at - now) / 3600, 0) for w in ws}
         cost = {w.name: estimate_cost(p.id, req.tier, req.kind, w.name, ledger) for w in ws}
         rem = {w.name: 100 - effective_used(w, now)
@@ -107,6 +112,8 @@ def rank(pools, caps, adapters, cfg, req, ledger, now):
                for w in ws}
         fits = all(rem[n] >= cost[n] for n in rem)
         urgency, brake, reason = 0.0, False, f"{p.id} quota unknown"
+        if stale and not ws:
+            reason += " (stale: cached window already reset)"
         if ws:
             urg = {w.name: rem[w.name] / max(hrs[w.name], 0.25) for w in ws}
             long = max(ws, key=lambda w: w.length_min)
@@ -114,7 +121,8 @@ def rank(pools, caps, adapters, cfg, req, ledger, now):
             urgency = urg[long.name] if pc > 1 else max(urg.values())
             brake = pc > 1 and size in ("M", "L")
             reason = (f"{p.id} {long.name} {effective_used(long, now):.0f}% used, resets in "
-                      f"{hrs[long.name] / 24:.1f}d, pace {pc:.1f}, est {cost[long.name]:g}%")
+                      f"{hrs[long.name] / 24:.1f}d, pace {pc:.1f}, est {cost[long.name]:g}%"
+                      + (", stale window ignored" if stale else ""))
         needs_approval = p.billing in ("api", "unknown") or (p.overage and not fits)
         if needs_approval:
             reason += ", needs approval"

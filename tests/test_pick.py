@@ -111,6 +111,30 @@ class PickCase(unittest.TestCase):
         got = rank([pool(windows=[W(50, 72)])], ledger=[row] * 3)
         self.assertEqual(got[0].est_cost, {"weekly": 10})
 
+    def test_estimate_cost_ignores_garbage_deltas(self):
+        """M1"""
+        row = lambda d: {"pool": "chatgpt", "tier": "T0", "kind": "read", "delta": {"weekly": d}}
+        bad = [row(None), row("x"), row(-3), row(True), row([1])]
+        good = [row(10)] * 3
+        self.assertEqual(pick.estimate_cost("chatgpt", "T0", "read", "weekly", bad + good), 10)
+        self.assertEqual(pick.estimate_cost("chatgpt", "T0", "read", "weekly", bad + good[:2]), 0.5)
+
+    def test_expired_window_is_stale_not_zero_percent_used(self):
+        """I6: a cached window whose reset already passed says nothing about the new window."""
+        stale = pool("chatgpt", [W(90, -1)])
+        (c,) = rank([stale])
+        self.assertIn("stale", c.reason)
+        self.assertEqual((c.urgency, c.est_cost, c.fits), (0.0, {}, True))  # quota-unknown, not 100% headroom
+        known = pool("anthropic", [W(50, 72)], cli="claude", models=("sonnet",))
+        self.assertEqual([x.pool for x in rank([stale, known])], ["anthropic", "chatgpt"])
+        # only the live window decides fit; the stale one does not count as headroom either way
+        mixed = pool("chatgpt", [W(99.9, 1, 300, "5h"), W(5, -2)])
+        self.assertEqual(rank([mixed]), [])  # live 5h has 0.1% left < est 3%
+        ok = pool("chatgpt", [W(10, 1, 300, "5h"), W(99, -2)])
+        (c,) = rank([ok])
+        self.assertEqual(set(c.est_cost), {"5h"})
+        self.assertIn("stale", c.reason)
+
     def test_size_class_and_unknown_window_default(self):
         self.assertEqual([pick.size_class(*a) for a in
                           [("T0", "write"), ("T0", "review"), ("T1", "review"), ("T1", "read"),

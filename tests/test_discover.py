@@ -627,6 +627,10 @@ class Misc(Base):
         self.assertEqual({m["pool"] for m in caps if m["pattern"].startswith("claude-")},
                          {"google:claude-gpt", "cursor"})
         self.assertEqual([m["pattern"] for m in caps if m["pool"] == "anthropic"], ["haiku", "sonnet", "opus", "fable"])
+        cursor = [m for m in caps if m["pool"] == "cursor"]  # I7: cursor's `auto` is the cheap default, first
+        self.assertEqual((cursor[0]["pattern"], cursor[0]["tiers"], cursor[0]["strengths"]),
+                         ("auto", ["T0", "T1"], ["code", "research"]))
+        self.assertIn("composer-2.5*", [m["pattern"] for m in cursor[1:]])
 
     def test_stubs_exist_for_all_eight_clis(self):
         for n in ("claude", "codex", "agy", "cursor-agent", "kimi", "pi", "opencode", "qwen"):

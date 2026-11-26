@@ -19,6 +19,7 @@
     {"pattern": "gpt-oss-120b*", "pool": "google:claude-gpt", "cli": "agy", "tiers": ["T0"], "strengths": []},
     {"pattern": "claude-sonnet-5-5*", "pool": "google:claude-gpt", "cli": "agy", "tiers": ["T1", "T2"], "strengths": ["code", "review"]},
     {"pattern": "claude-opus-5-5*", "pool": "google:claude-gpt", "cli": "agy", "tiers": ["T2"], "strengths": ["code", "review", "plan"]},
+    {"pattern": "auto", "pool": "cursor", "cli": "cursor", "tiers": ["T0", "T1"], "strengths": ["code", "research"]},
     {"pattern": "composer-2.5*", "pool": "cursor", "cli": "cursor", "tiers": ["T0", "T1"], "strengths": ["code"]},
     {"pattern": "claude-sonnet-5*", "pool": "cursor", "cli": "cursor", "tiers": ["T1", "T2"], "strengths": ["code", "review"]},
     {"pattern": "gpt-5.6-sol*", "pool": "cursor", "cli": "cursor", "tiers": ["T2"], "strengths": ["review"]},
