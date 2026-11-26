@@ -72,6 +72,28 @@ class TestCli(CliCase):
         self.assertEqual(set(rows["claude"]), {"cli", "installed", "version", "verified_version",
                                                "flags_missing", "live_ok", "status"})
 
+    def test_selftest_live_picks_the_pool_reachable_through_each_cli(self):
+        """Real shape: pi/opencode are secondary access of the chatgpt pool; a dead xai/zai pool is not theirs to prove."""
+        from lanelib import selftest
+        acc = lambda *clis: [{"cli": c, "provider": None, "models": ["m"]} for c in clis]
+        inv = {"xai": {**POOL, "id": "xai", "cli": "pi", "status": "logged_in_unverified", "access": acc("pi")},
+               "chatgpt": {**POOL, "id": "chatgpt", "cli": "codex", "access": acc("codex", "pi", "opencode")},
+               "api:x": {**POOL, "id": "api:x", "cli": "opencode", "billing": "api", "access": acc("opencode")}}
+        self.assertEqual(selftest._live_pool(inv, "pi")["id"], "chatgpt")
+        self.assertEqual(selftest._live_pool(inv, "opencode")["id"], "chatgpt")
+        self.assertEqual(selftest._live_pool(inv, "codex")["id"], "chatgpt")
+        self.assertIsNone(selftest._live_pool(inv, "qwen"))
+
+    def test_selftest_live_skips_unverified_adapters(self):
+        state.write_inventory({"version": 1, "checked_at": NOW, "quota_at": NOW, "models_at": NOW,
+                               "pools": {"kimi": POOL}})
+        log = self.tmp / "stub.log"
+        r = self.run_cli("selftest", "--live", "--json", STUB_LOG=str(log))
+        rows = {x["cli"]: x for x in json.loads(r.stdout)}
+        self.assertIsNone(rows["kimi"]["live_ok"])  # kimi adapter has verified: false
+        calls = [json.loads(x) for x in log.read_text().splitlines()]
+        self.assertFalse([c for c in calls if c[0] == "kimi" and "-p" in c])
+
     def test_install_skips_real_dir(self):
         real = self.home / ".claude" / "skills" / "token-efficient-workflow"
         real.mkdir(parents=True)

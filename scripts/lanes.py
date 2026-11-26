@@ -33,7 +33,7 @@ def load_inv():
 
 
 def self_pool():
-    return discover.detect_self_pool(os.environ)
+    return discover.detect_self_pool(os.environ, runner.load_adapters())
 
 
 def fmt_pool(p, now):

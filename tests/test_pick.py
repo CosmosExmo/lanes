@@ -118,6 +118,14 @@ class PickCase(unittest.TestCase):
                          ["S", "S", "S", "M", "M", "M", "L"])
         self.assertEqual(pick.estimate_cost("p", "T1", "write", "300m", []), 4)
 
+    def test_agy_slug_carries_the_effort(self):
+        """Real `agy models` lists one slug per effort (gemini-4-neon-low/medium/high); the tier picks the slug."""
+        p = pool("google:gemini", [W(10, 72)], cli="agy",
+                 models=("gemini-4-neon-high", "gemini-4-neon-medium", "gemini-4-neon-low"))
+        for tier, eff in (("T0", "low"), ("T1", "medium")):
+            c = rank([p], Request(tier, "read", "x"))[0]
+            self.assertEqual((c.model, c.effort), (f"gemini-4-neon-{eff}", eff))
+
     def test_model_suffix_effort_and_candidate_dict(self):
         p = pool("cursor", [W(10, 72)], cli="cursor", models=("composer-2.5", "composer-2.5-medium"))
         c = rank([p], Request("T1", "read", "x"))[0]

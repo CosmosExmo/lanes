@@ -1,6 +1,7 @@
 """Ranking: which lane should take this job. Use quota before it expires, keep long jobs off
 tail-end pools, never auto-spend, keep reviews off the author's pool. Stdlib only."""
 import fnmatch
+import re
 import statistics
 from dataclasses import asdict, dataclass
 
@@ -78,7 +79,8 @@ def _lane(p, entries, adapters, cfg, req):
             if req.needs_shell and not (ad.get("can_shell") or (acc["cli"] == "agy" and cfg.get("agy_allow_shell"))):
                 continue
             style, eff = ad.get("effort_style"), EFFORT[req.tier]
-            model = next((f"{m}-{eff}" for m in hits if f"{m}-{eff}" in acc["models"]), hits[0]) \
+            base = lambda m: re.sub(r"-(low|medium|high|xhigh)$", "", m)  # slugs may already carry an effort
+            model = next((f"{base(m)}-{eff}" for m in hits if f"{base(m)}-{eff}" in acc["models"]), hits[0]) \
                 if style == "model_suffix" else hits[0]
             return cap, acc, model, ("" if style == "none" else eff)
     return None

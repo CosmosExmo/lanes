@@ -22,6 +22,13 @@ def _row(cli, a, installed, version="", missing=(), live_ok=None, status="ok"):
             "flags_missing": list(missing), "live_ok": live_ok, "status": status}
 
 
+def _live_pool(inv, cli):
+    """A subscription pool reachable through `cli` (any access entry), working pools first."""
+    ps = [p for p in inv.values() if p["billing"] == "subscription"
+          and any(x["cli"] == cli for x in p.get("access") or [{"cli": p["cli"]}])]
+    return min(ps, key=lambda p: p["status"] not in ("usable", "quota_unknown"), default=None)
+
+
 def selftest(adapters: dict, live: bool) -> list:
     inv = (state.read_inventory(None) or {}).get("pools") or {}
     rows = []
@@ -37,12 +44,12 @@ def selftest(adapters: dict, live: bool) -> list:
         live_ok, status = None, "ok"
         if missing:
             status = "flags_missing"
-        elif live:
-            pool = next((p for p in inv.values() if p["cli"] == cli and p["billing"] == "subscription"), None)
+        elif live and a.get("verified", True):  # an unverified adapter is never worth a live call
+            pool = _live_pool(inv, cli)
             if pool is None:
                 status = "no_pool"
             else:
-                live_ok = discover.probe(adapters, discover.Pool.from_dict(pool))
+                live_ok = discover.probe(adapters, discover.Pool.from_dict(pool), cli)
                 status = "ok" if live_ok else "live_failed"
         if status == "ok" and a.get("verified_version") and a["verified_version"] not in (ver.stdout + ver.stderr) \
                 and not live:

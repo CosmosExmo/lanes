@@ -176,6 +176,17 @@ class WorktreeTests(RunnerCase):
         self.assertEqual((m["status"], m["worktree"]), ("done", str(wt)))
         self.assertEqual(self.row(jid)["worktree"], str(wt))
 
+    def test_child_pwd_follows_the_worktree(self):
+        """Real opencode wrote into the launching checkout because $PWD still named it."""
+        wt = self.tmp / "wt"
+        wt.mkdir()
+        jd = runner._jobs() / "j1"
+        jd.mkdir(parents=True)
+        spec = {"argv": [sys.executable, "-c", "import os;print(os.environ['PWD'], os.getcwd())"], "stdin": "/dev/null"}
+        with mock.patch.dict(os.environ, {"PWD": str(self.tmp)}):
+            runner._spawn(spec, {"job": "j1", "cwd": str(wt)}, dict(os.environ), 30)
+        self.assertEqual((jd / "stdout.txt").read_text().split(), [str(wt), str(wt.resolve())])
+
     def test_write_job_without_diff_is_no_changes(self):
         os.environ["STUB_MODE"] = "nowrite"
         jid = self.start(mode="write", cwd=self.repo(), worktree=True)

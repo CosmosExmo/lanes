@@ -212,6 +212,7 @@ def _spawn(spec, m, env, timeout_s):
         old = signal.signal(signal.SIGTERM, _on_term)  # SIGTERM to lanes behaves like Ctrl-C
     except ValueError:  # not the main thread
         old = None
+    env = {**env, "PWD": str(m["cwd"])}  # Popen(cwd=) leaves $PWD at the caller's dir; opencode trusts $PWD
     try:
         with open(spec["stdin"], "rb") as stdin:
             p = subprocess.Popen(spec["argv"], cwd=m["cwd"], env=env, stdin=stdin, stdout=fds[0], stderr=fds[1],

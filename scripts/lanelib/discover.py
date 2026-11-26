@@ -534,13 +534,19 @@ def check_router(name, adapters, now, pools=None):
 
 # ---- probe, discover, self-detection --------------------------------------------------------
 
-def _probe(adapters, pool):
-    """-> (ok, limit_error): one read-only prompt through the pool's first access CLI."""
+def _probe(adapters, pool, cli=None):
+    """-> (ok, limit_error): one read-only prompt through the pool's first access CLI (or the one named `cli`)."""
     if pool.billing != "subscription" or pool.status in DEAD or not pool.access:
         return False, False  # money rule: api/unknown billing is never probed
-    acc = pool.access[0]
+    acc = next((x for x in pool.access if cli in (None, x["cli"])), None)
+    if acc is None:
+        return False, False
     a = adapters[acc["cli"]]
-    model = a["probe_model"] or (acc["models"] or [""])[0]
+    pm = a["probe_model"]
+    if isinstance(pm, dict):  # per-provider pick for CLIs that route several providers
+        pm = pm.get(acc["provider"])
+    # a stale or restricted pick must not decide the probe: fall back to the first listed model
+    model = pm if pm and (not acc["models"] or pm in acc["models"]) else (acc["models"] or [""])[0]
     if not model:
         return False, False
     with tempfile.TemporaryDirectory() as d:
@@ -564,14 +570,25 @@ def is_limit_error(a, text):
     return any(x.lower() in low for x in a["limit_error_patterns"])
 
 
-def probe(adapters, pool):
-    return _probe(adapters, pool)[0]
+def probe(adapters, pool, cli=None):
+    return _probe(adapters, pool, cli)[0]
 
 
-def detect_self_pool(env):
-    if env.get("CLAUDECODE") == "1":
-        return "anthropic"
-    return None
+# Env vars each harness sets in its tool shell (seen live 2026-11-26); innermost harness first, because
+# a CLI started from Claude Code's shell inherits CLAUDECODE=1 as well.
+SELF_MARKERS = (("CODEX_THREAD_ID", "chatgpt"), ("ANTIGRAVITY_AGENT", "google:gemini"), ("CURSOR_AGENT", "cursor"))
+
+
+def detect_self_pool(env, adapters=None):
+    """Pool the calling harness bills against, or None. opencode sets OPENCODE_SESSION_ID but no
+    provider variable, so its pool is unknowable; pi names it in PI_PROVIDER."""
+    for var, pool in SELF_MARKERS:
+        if env.get(var):
+            return pool
+    if env.get("PI_CODING_AGENT"):
+        prov = ((adapters or {}).get("pi") or {}).get("providers", {}).get(env.get("PI_PROVIDER", ""), {})
+        return prov.get("pool")
+    return "anthropic" if env.get("CLAUDECODE") == "1" else None
 
 
 def read_pool_windows(pool_id, adapters, cfg, now):

@@ -407,6 +407,21 @@ class Discover(Base):
         self.assertFalse(any("-p" in c for c in self.calls()))  # no model call reached any stub
         self.assertTrue(discover.probe(self.adapters, k))  # a subscription pool still probes
 
+    def test_probe_model_pick_avoids_restricted_first_model(self):
+        """Real shape: opencode lists `gpt-5.6-cyber` first (not usable on a plain plan); the probe must use the adapter pick."""
+        seen = []
+        ok = mock.Mock(returncode=0, stdout="OK", stderr="")
+        oc = self.adapters["opencode"]
+        mk = lambda models, provider="openai": Pool(
+            id="chatgpt", cli="opencode", status="usable", billing="subscription", overage=True, windows=[], note="", checked_at=NOW,
+            access=[{"cli": "opencode", "provider": provider, "models": models}], models=models)
+        with mock.patch.object(discover, "run_cmd", side_effect=lambda argv, *a, **k: seen.append(argv) or ok):
+            self.assertTrue(discover.probe(self.adapters, mk(["gpt-5.6-cyber", "gpt-5.6-luna"])))
+            self.assertTrue(discover.probe(self.adapters, mk(["gpt-5.6-cyber", "gpt-6-sol"])))  # pick gone: first listed
+            self.assertTrue(discover.probe(self.adapters, mk(["glm-5.3"], "zai-coding-plan")))  # no pick for this provider
+        self.assertEqual([a[a.index("-m") + 1] for a in seen],
+                         ["openai/gpt-5.6-luna#low", "openai/gpt-5.6-cyber#low", "zai-coding-plan/glm-5.3#low"])
+
     def test_probe_function_returns_bool(self):
         self.mode("ok")
         (p,) = discover.check_kimi(self.adapters, NOW)
@@ -486,6 +501,18 @@ class Misc(Base):
     def test_detect_self_pool(self):
         self.assertEqual(discover.detect_self_pool({"CLAUDECODE": "1"}), "anthropic")
         self.assertIsNone(discover.detect_self_pool({}))
+        # markers observed in the real tool shells of each harness
+        for var, pool in (("CODEX_THREAD_ID", "chatgpt"), ("ANTIGRAVITY_AGENT", "google:gemini"),
+                          ("CURSOR_AGENT", "cursor")):
+            self.assertEqual(discover.detect_self_pool({var: "x"}), pool)
+            self.assertEqual(discover.detect_self_pool({var: "x", "CLAUDECODE": "1"}), pool)  # launched from Claude
+        pi = {"PI_CODING_AGENT": "true", "PI_PROVIDER": "openai-codex", "CLAUDECODE": "1"}
+        self.assertEqual(discover.detect_self_pool(pi, ADAPTERS), "chatgpt")
+        self.assertEqual(discover.detect_self_pool({**pi, "PI_PROVIDER": "xai"}, ADAPTERS), "xai")
+        self.assertIsNone(discover.detect_self_pool({**pi, "PI_PROVIDER": "unlisted"}, ADAPTERS))
+        # opencode's session id alone does not name a pool; the user's own OPENCODE_* settings are not a marker
+        self.assertIsNone(discover.detect_self_pool({"OPENCODE_SESSION_ID": "s", "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1"}))
+        self.assertIsNone(discover.detect_self_pool({"CODEX_COMPANION_SESSION_ID": "s"}))
 
     def test_read_pool_windows(self):
         ws = discover.read_pool_windows("anthropic", self.adapters, {}, NOW)
