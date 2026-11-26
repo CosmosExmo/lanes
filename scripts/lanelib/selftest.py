@@ -101,9 +101,13 @@ def install(repo: Path, bin_only=False, dry=False) -> list:
 
 
 def update(repo: Path) -> int:
-    r = subprocess.run(["git", "-C", str(repo), "pull", "--ff-only"], capture_output=True, text=True)
+    import sys
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "pull", "--ff-only"], capture_output=True, text=True)
+    except OSError:
+        sys.stderr.write("lanes update needs git, which was not found on PATH\n")
+        return 2
     if r.returncode:
-        import sys
         sys.stderr.write(state.redact(r.stdout + r.stderr))
         return 2
     return 0

@@ -75,6 +75,18 @@ class StateCase(unittest.TestCase):
         for s in ("a.b@c.org", "abc.def", "sk-123", "eyJa.eyJb.c"):
             self.assertNotIn(s, out)
 
+    def test_read_ledger_skips_non_dict_lines(self):
+        """M4"""
+        state.append_ledger({"job": "a", "ts": 1})
+        with open(os.path.join(self.tmp.name, "cache", "ledger.jsonl"), "a") as f:
+            f.write('[1, 2]\n"str"\n42\nnull\n{"job": "b", "ts": 2}\n')
+        self.assertEqual([r["job"] for r in state.read_ledger()], ["a", "b"])
+
+    def test_redact_bearer_any_case(self):
+        """M4"""
+        for word in ("bearer", "BEARER", "Bearer"):
+            self.assertNotIn("tok123", state.redact(f"Authorization: {word} tok123"))
+
     def test_load_config_defaults(self):
         self.assertEqual(state.load_config(), {
             "cursor_read_quota": False, "agy_allow_shell": False,

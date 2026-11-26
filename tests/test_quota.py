@@ -72,6 +72,22 @@ class QuotaCase(unittest.TestCase):
         self.assertEqual(g["5h"].resets_at,
                          datetime(2026, 11, 26, 12, 36, 52, tzinfo=ZoneInfo("UTC")).timestamp())
 
+    def test_agy_remaining_fraction_is_clamped(self):
+        """M5"""
+        d = json.loads(fx("agy_usage.json"))
+        bs = d["command"]["data"]["groups"][0]["buckets"]
+        bs[0]["remaining_fraction"], bs[1]["remaining_fraction"] = 1.7, -0.4
+        g = {w.name: w.used_pct for w in quota.parse_agy_usage(d)["google:gemini"]}
+        self.assertEqual(g, {"weekly": 0.0, "5h": 100.0})
+
+    def test_iso_timestamps_with_any_fraction_length(self):
+        """M5: Python 3.9's fromisoformat only takes 3 or 6 fractional digits."""
+        base = datetime(2026, 11, 26, 12, 0, 0, tzinfo=ZoneInfo("UTC")).timestamp()
+        for text, frac in (("2026-11-26T12:00:00Z", 0), ("2026-11-26T12:00:00.5Z", 0.5),
+                           ("2026-11-26T12:00:00.12Z", 0.12), ("2026-11-26T12:00:00.1234567891Z", 0.123456),
+                           ("2026-11-26T12:00:00.123456789+00:00", 0.123456), ("2026-11-26T15:00:00.25+03:00", 0.25)):
+            self.assertAlmostEqual(quota.parse_iso(text), base + frac, places=5, msg=text)
+
     def test_cursor_monthly(self):
         ws = quota.parse_cursor_usage(json.loads(fx("cursor_usage.json")))
         self.assertEqual(len(ws), 1)

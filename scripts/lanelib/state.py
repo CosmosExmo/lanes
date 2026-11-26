@@ -96,6 +96,8 @@ def read_ledger(since=None) -> list:
             row = json.loads(l)
         except ValueError:
             continue
+        if not isinstance(row, dict):
+            continue
         merged.setdefault(row.get("job", ("_row", n)), {}).update(row)
     rows = list(merged.values())
     if since is not None:
@@ -120,7 +122,7 @@ def job_dir(job_id: str) -> Path:
 
 _REDACTIONS = [
     (re.compile(r"eyJ[\w-]*\.[\w-]+\.[\w-]+"), "<redacted>"),
-    (re.compile(r"Bearer\s+\S+"), "<redacted>"),
+    (re.compile(r"Bearer\s+\S+", re.I), "<redacted>"),
     (re.compile(r"\bsk-[\w-]+"), "<redacted>"),
     (re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"), "<email>"),
 ]

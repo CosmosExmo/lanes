@@ -98,6 +98,13 @@ _AGY_POOLS = {"Gemini Models": "google:gemini", "Claude and GPT models": "google
 _AGY_MIN = {"5h": 300, "weekly": 10080}
 
 
+def parse_iso(text):
+    """ISO-8601 -> unix seconds. Python 3.9's fromisoformat takes 3 or 6 fractional digits only, so the
+    fraction is cut or padded to microseconds first; `Z` means UTC."""
+    t = re.sub(r"\.(\d+)", lambda m: "." + m.group(1)[:6].ljust(6, "0"), text.replace("Z", "+00:00"))
+    return datetime.fromisoformat(t).timestamp()
+
+
 def parse_agy_usage(data):
     pools = {}
     for g in data["command"]["data"]["groups"]:
@@ -107,9 +114,9 @@ def parse_agy_usage(data):
             n = _AGY_MIN.get(b.get("window"))
             if n is None:
                 continue
-            reset = datetime.fromisoformat(b["reset_time"].replace("Z", "+00:00")).timestamp()
+            frac = min(1.0, max(0.0, float(b["remaining_fraction"])))
             pools.setdefault(key, []).append(
-                Window(window_name(n), 100 * (1 - b["remaining_fraction"]), reset, n))
+                Window(window_name(n), 100 * (1 - frac), parse_iso(b["reset_time"]), n))
     return pools
 
 

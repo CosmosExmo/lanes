@@ -387,6 +387,36 @@ class Discover(Base):
                          ("exhausted", NOW + 3600))
         self.assertEqual(state.read_inventory(None)["pools"]["chatgpt"]["status"], "exhausted")
 
+    def test_checks_run_in_parallel_with_bounded_workers_and_stable_order(self):
+        """M2"""
+        import threading
+        import time
+        lock, live, peak = threading.Lock(), [0], [0]
+
+        def slow(pid, cli):
+            def fn(*a, **k):
+                with lock:
+                    live[0] += 1
+                    peak[0] = max(peak[0], live[0])
+                time.sleep(0.3)
+                with lock:
+                    live[0] -= 1
+                return [Pool(pid, cli, "usable", "subscription", False, [], [], "", NOW)]
+            return fn
+
+        names = (("check_claude", "anthropic", "claude"), ("check_codex", "chatgpt", "codex"),
+                 ("check_agy", "google:gemini", "agy"), ("check_cursor", "cursor", "cursor"),
+                 ("check_kimi", "kimi", "kimi"))
+        with mock.patch.multiple(discover, **{n: slow(p, c) for n, p, c in names}), \
+                mock.patch.object(discover, "check_router", slow("router:x", "pi")):
+            t = time.monotonic()
+            inv = self.run_discover()
+            took = time.monotonic() - t
+        self.assertEqual(list(inv["pools"]), ["anthropic", "chatgpt", "google:gemini", "cursor", "kimi", "router:x"])
+        self.assertLessEqual(peak[0], 4)
+        self.assertGreater(peak[0], 1)
+        self.assertLess(took, 8 * 0.3)  # serial would be 8 x 0.3 s
+
     def test_past_exhausted_until_is_cleared(self):
         self.seed_exhausted(NOW - 5)
         k = self.run_discover()["pools"]["kimi"]

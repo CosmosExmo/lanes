@@ -214,6 +214,16 @@ class TestCli(CliCase):
         self.assertIn("pool exhausted until", w.stderr)
         self.assertIn("pick the next lane", w.stderr)
 
+    def test_update_without_git_is_a_one_line_error(self):
+        """M6"""
+        empty = self.tmp / "nogit"
+        empty.mkdir()
+        r = self.run_cli("update", PATH=str(empty))
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(len(r.stderr.strip().splitlines()), 1)
+        self.assertIn("git", r.stderr)
+
     def test_mark_rejects_bad_outcome(self):
         self.assertEqual(self.run_cli("mark", "x", "bogus").returncode, 2)
 

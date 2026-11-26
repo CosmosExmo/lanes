@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,7 @@ from .quota import (Window, effective_used, parse_agy_usage, parse_claude_usage,
 QUOTA_TTL = 900
 MODELS_TTL = 86400
 PROBE_TTL = 86400
+MAX_PARALLEL = 4
 PROBE_PROMPT = "Reply with exactly: OK"
 CLAUDE_MODELS = ["haiku", "sonnet", "opus", "fable"]
 DEAD = ("not_installed", "adapter_broken", "not_logged_in")
@@ -665,16 +667,22 @@ def discover(adapters, cfg, refresh, do_probe, now):
         except Exception:
             return [Pool(fallback_id, cli, "adapter_broken", "unknown", False, [], [], "check failed", now)]
 
-    for ps in (run("anthropic", "claude", lambda: check_claude(adapters, now, prev)),
-               run("chatgpt", "codex", lambda: check_codex(adapters, now, prev)),
-               run("google:gemini", "agy", lambda: check_agy(adapters, now, prev)),
-               run("cursor", "cursor", lambda: check_cursor(adapters, cfg, now, prev)),
-               run("kimi", "kimi", lambda: check_kimi(adapters, now, prev))):
-        for p in ps:
-            pools[p.id] = p
-    for name in ("pi", "opencode", "qwen"):
-        for p in run("router:" + name, name, lambda: check_router(name, adapters, now, pools)):
-            _merge(pools, p)
+    checks = [("anthropic", "claude", lambda: check_claude(adapters, now, prev)),
+              ("chatgpt", "codex", lambda: check_codex(adapters, now, prev)),
+              ("google:gemini", "agy", lambda: check_agy(adapters, now, prev)),
+              ("cursor", "cursor", lambda: check_cursor(adapters, cfg, now, prev)),
+              ("kimi", "kimi", lambda: check_kimi(adapters, now, prev))]
+    # bounded fan-out (the CLIs are independent and mostly wait); results are consumed in submit order
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as ex:
+        for fut in [ex.submit(run, *c) for c in checks]:
+            for p in fut.result():
+                pools[p.id] = p
+        official = dict(pools)  # routers copy quota windows from the official pools (read-only)
+        routers = [ex.submit(run, "router:" + n, n, lambda n=n: check_router(n, adapters, now, official))
+                   for n in ("pi", "opencode", "qwen")]
+        for fut in routers:
+            for p in fut.result():
+                _merge(pools, p)
 
     for pid, p in pools.items():  # probe results (usable/no_plan without quota) live for 24 h
         o = old.get("pools", {}).get(pid)
