@@ -81,6 +81,15 @@ class SingleCheck(Base):
         self.assertIn("opus", p.models)
         self.assertEqual(p.access, [{"cli": "claude", "provider": None, "models": p.models}])
 
+    def test_exhausted_model_scoped_window_keeps_pool_usable(self):
+        self.mode("fable_full")
+        (p,) = discover.check_claude(self.adapters, NOW)
+        self.assertEqual({w.name: w.used_pct for w in p.windows}["weekly:fable"], 100.0)
+        self.assertEqual(p.status, "usable")
+
+    def test_exhausted_pool_wide_window_is_exhausted(self):
+        self.assertEqual(discover._quota_status([Window("weekly", 100, NOW + 3600, 10080)], NOW), "exhausted")
+
     def test_claude_console_auth_is_api_billing(self):
         self.mode("api")
         (p,) = discover.check_claude(self.adapters, NOW)

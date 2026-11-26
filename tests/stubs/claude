@@ -14,7 +14,9 @@ elif a[:2] == ["auth", "status"]:
                       "authMethod": "console" if has("api") else "claude.ai",
                       "email": EMAIL, "orgName": "Example Org"}))
 elif "/usage" in a:
-    print(json.dumps({"result": "no usage here" if has("usage_bad") else fixture("claude_usage.txt"),
-                      "num_turns": 0}))
+    text = fixture("claude_usage.txt")
+    if has("fable_full"):
+        text = text.replace("(Fable): 0% used", "(Fable): 100% used")
+    print(json.dumps({"result": "no usage here" if has("usage_bad") else text, "num_turns": 0}))
 else:
     model_call()

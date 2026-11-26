@@ -156,7 +156,7 @@ def _fin(p, provider=None):
 def _quota_status(ws, now):
     if not ws:
         return "quota_unknown"
-    return "exhausted" if any(effective_used(w, _ts(now)) >= 100 for w in ws) else "usable"
+    return "exhausted" if any(effective_used(w, _ts(now)) >= 100 for w in ws if ":" not in w.name) else "usable"
 
 
 def _apply_quota(p, ws, now):

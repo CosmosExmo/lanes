@@ -1,11 +1,17 @@
 import json
+import os
+import shutil
 import sys
+import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
+from unittest import mock
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from lanelib import pick
+from lanelib import discover, pick
 from lanelib.discover import Pool
 from lanelib.pick import Request
 
@@ -121,6 +127,23 @@ class PickCase(unittest.TestCase):
     def test_model_scoped_window_only_gates_that_model(self):
         p = pool("anthropic", [W(10, 72), W(100, 72, name="weekly:fable")], cli="claude", models=("sonnet",))
         self.assertEqual(len(rank([p])), 1)
+
+    def test_rank_uses_sonnet_when_only_fable_window_is_full(self):
+        # end to end: real discover() output (stub claude, weekly:fable at 100%) -> rank
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        env = {"HOME": d, "LANES_CACHE": d + "/cache", "LANES_CONFIG": d + "/config.json",
+               "STUB_MODE": "fable_full", "STUB_PI_READY": "", "STUB_OC": "deepseek:key",
+               "PATH": f"{ROOT / 'tests' / 'stubs'}{os.pathsep}{os.environ['PATH']}"}
+        with mock.patch.dict(os.environ, env):
+            for k in ADAPTERS["claude"]["env_strip"]:
+                os.environ.pop(k, None)
+            now = datetime(2026, 11, 26, 14, 0, tzinfo=ZoneInfo("Europe/Istanbul")).timestamp()
+            inv = discover.discover(ADAPTERS, CFG, False, False, now)
+        pools = {k: Pool.from_dict(v) for k, v in inv["pools"].items()}
+        caps = json.loads((ROOT / "capabilities.json").read_text())
+        got = pick.rank(pools, caps, ADAPTERS, CFG, Request("T1", "read", "x"), [], now)
+        self.assertIn("sonnet", [c.model for c in got if c.pool == "anthropic"])
 
     def test_n_limits_results(self):
         ps = [pool("chatgpt", [W(10, 72)]), pool("anthropic", [W(10, 72)], cli="claude", models=("sonnet",))]
