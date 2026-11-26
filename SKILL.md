@@ -1,6 +1,6 @@
 ---
 name: token-efficient-workflow
-description: Use when delegating work to subagents or other agent CLIs, or when a subscription limit is a concern. Triggers - before spawning ANY subagent, Explore/Plan agent, workflow agent, fork, parallel worker or background job; a Claude, Codex, Gemini/agy or Cursor limit or quota is filling up ("limit", "kota", "quota", "limit doldu", "weekly is at 84%"); "ask Gemini", "ask Codex", "ask Claude", "Gemini'ye sor", "Codex'e sor", "ikinci görüş", "çapraz review", "review this diff"; or the user wants a token-efficient, cheap ("ucuz") workflow. The session model only orchestrates; every spawn gets an explicit cheaper model and effort; bulk work, research and cross-provider review go to lanes in other subscription pools via the bundled `lanes` CLI, with a cost ledger. Works from any harness (Claude Code, Codex, agy, Cursor, pi, OpenCode, Kimi, Qwen).
+description: Use when delegating work to subagents or other agent CLIs, or when a subscription limit is a concern. Triggers - before spawning ANY subagent, Explore/Plan agent, workflow agent, fork, parallel worker or background job; a Claude, Codex, Gemini/agy or Cursor limit or quota is filling up ("limit", "kota", "quota", "limit doldu", "weekly is at 84%"); "ask Gemini", "ask Codex", "ask Claude", "Gemini'ye sor", "Codex'e sor", "ikinci görüş", "çapraz review", "review this diff"; or the user wants a token-efficient, cheap ("ucuz") workflow, in any harness (Claude Code, Codex, agy, Cursor, pi, OpenCode, Kimi, Qwen).
 ---
 
 # Token-Efficient Workflow
@@ -88,11 +88,13 @@ Exit codes: 0 ok, 2 usage/environment or wait timeout, 3 nested, 4 approval need
 
 ### Routing rules
 
-1. **Own pool first when it has room.** `pick` shows `native` ahead of others and your window is not braked:
-   tiered subagent. Go to another pool when your pace is above 1, the pool is exhausted, the work suits
-   another family, or it is a review.
-2. **Use it or lose it.** Unspent quota burns at the reset. Take `pick`'s first row; it already ranks by
-   remaining % per hour to reset and keeps long jobs off pools at the tail. No fixed threshold, and a high
+1. **Own pool when it has room.** `cli = native` marks your own pool wherever it ranks; if it is the first
+   usable row and your window is not braked, use a tiered subagent. `pick` already deducts a small reserve
+   from your own pool for synthesis. Go to another pool when your pace is above 1, the pool is exhausted, the
+   work suits another family, or it is a review.
+2. **Use it or lose it.** Unspent quota burns at the reset. Take `pick`'s first usable row; it already ranks by
+   remaining % per hour to reset. Quota tail: short T0, review and read jobs go to a pool near its limit, long
+   jobs go elsewhere, and a lane that cannot fit a job is dropped only for that job. No fixed threshold, and a high
    Claude percentage is not a reason to stop using Claude: it is a reason to send bulk and review elsewhere
    and keep your own pool for T3 synthesis.
 3. **Review leaves the writer's pool.** `lanes pick --kind review --task review --tier T2 --author-pool <writer pool>`
@@ -109,6 +111,8 @@ Exit codes: 0 ok, 2 usage/environment or wait timeout, 3 nested, 4 approval need
 7. **No nesting.** Lane prompts say "do not delegate". `lanes run` exits 3 inside a lane: then do the work yourself.
 8. **Brief a lane like any spawn** (shape below) and put what it must return at the end. It starts with no
    context, no skills and no memory of this conversation.
+9. **Anthropic only through `claude`.** Claude models are reached with the `claude` CLI; Anthropic logins inside
+   pi or opencode are never used.
 
 Per-CLI invocation details, quota sources, billing traps and orchestrating from each harness: `harnesses.md`.
 
