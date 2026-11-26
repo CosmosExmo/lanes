@@ -129,7 +129,7 @@ class TestCli(CliCase):
         self.inv()
         pf = self.tmp / "p.txt"
         pf.write_text("hi")
-        base = ["run", "--pool", "kimi", "--cli", "kimi", "--model", "k3", "--effort", "low",
+        base = ["run", "--pool", "kimi", "--cli", "kimi", "--model", "kimi-for-coding-highspeed", "--effort", "low",
                 "--mode", "read", "--prompt-file", str(pf)]
         self.assertEqual(self.run_cli(*base, LANES_DEPTH="1").returncode, 3)
         r = self.run_cli(*base, CLAUDECODE="1")

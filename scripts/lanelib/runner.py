@@ -17,7 +17,8 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import discover, state
+from . import discover, pick, state
+from .quota import Window, effective_used
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -155,6 +156,35 @@ def _overlapped(m, t1):
     return False
 
 
+def _base(m):
+    return re.sub(r"-(low|medium|high|xhigh)$", "", m)  # an effort suffix is not part of the model
+
+
+def _in_access(pool, lane):
+    """True when (cli, provider[, model]) is an access entry the discovery recorded for the pool."""
+    for x in pool.get("access") or []:
+        if x["cli"] == lane["cli"] and (x.get("provider") or None) == (lane.get("provider") or None) \
+                and (not x.get("models") or _base(lane["model"]) in {_base(m) for m in x["models"]}):
+            return True
+    return False
+
+
+def _busy_cost(pool_id, me):
+    """Sum of recorded est_cost per window over the OTHER live jobs on this pool."""
+    busy = {}
+    for f in _jobs().glob("*/meta.json"):
+        try:
+            o = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        if o.get("job") == me or o.get("pool") != pool_id or o.get("status") != "running" \
+                or not _alive(o.get("pid") or os.getpid()):
+            continue
+        for k, v in (o.get("est_cost") or {}).items():
+            busy[k] = busy.get(k, 0) + v
+    return busy
+
+
 def _delta(before, after):
     b = {w.name: w.used_pct for w in before}
     d = {w.name: round(w.used_pct - b[w.name], 2) for w in after if w.name in b and w.used_pct >= b[w.name]}
@@ -272,6 +302,25 @@ def _execute(m):
     _finish(m, status, rc, delta, fail if status == "failed" else None)
 
 
+def _plan_check(lane, pool, mode, meta, adapters, cfg, now, allow_spend):
+    """Per-window est_cost of this job. Overage-capable pools are re-read and must fit (exit 4)."""
+    tier = meta.get("tier") or "T1"
+    kind = meta.get("kind") or ("read" if mode == "read" else "write")
+    ledger = state.read_ledger()
+    cost = lambda ws: {w.name: pick.estimate_cost(lane["pool"], tier, kind, w.name, ledger) for w in ws}
+    if not pool.get("overage"):
+        return cost([Window.from_dict(w) for w in pool.get("windows") or []])
+    ws = discover.read_pool_windows(lane["pool"], adapters, cfg, now)
+    # a model-scoped window (weekly:fable) only constrains that model
+    ws = [w for w in ws or [] if ":" not in w.name or w.name.split(":", 1)[1] in lane["model"]]
+    est, busy = cost(ws), _busy_cost(lane["pool"], None)
+    if not allow_spend and (not ws or any(
+            100 - effective_used(w, now) - busy.get(w.name, 0) < est[w.name] for w in ws)):
+        _die(4, f"approval needed: this job would cross the plan limit of {lane['pool']} "
+                f"(pass --allow-spend to accept overage)")
+    return est
+
+
 def exec_job(job_id):
     """Perform a job prepared by start_job (also the entry point of background runs)."""
     m = _load_meta(_jid(job_id))
@@ -300,12 +349,17 @@ def start_job(lane, mode, prompt_file, *, cwd, worktree, resume, bg, allow_spend
     pool = ((state.read_inventory(None) or {}).get("pools") or {}).get(lane["pool"])
     if pool is None:
         _die(2, "run lanes discover first")
+    if not _in_access(pool, lane):  # billing comes from the pool, so the lane must really belong to it
+        _die(2, f"lane not in discovered access for {lane['pool']}")
+    if mode != "read" and not (worktree or resume):
+        _die(2, "write jobs need --worktree")
     if pool["billing"] in ("api", "unknown") and not allow_spend:
         _die(4, f"approval needed: {lane['pool']} is {pool['billing']}-billed")
     now = time.time()
     if pool["status"] in discover.DEAD or (
             pool["status"] == "exhausted" and (pool.get("exhausted_until") or _soonest_reset(pool, now)) > now):
         _die(2, f"{lane['pool']} unavailable: {pool['status']}")
+    est = _plan_check(lane, pool, mode, meta, adapters, cfg, now, allow_spend)
     if mode == "write_shell" and not (a.get("can_shell") or (lane["cli"] == "agy" and cfg.get("agy_allow_shell"))):
         _die(2, f"{lane['cli']} cannot run shell jobs")
     cwd = Path(cwd).resolve()
@@ -340,7 +394,7 @@ def start_job(lane, mode, prompt_file, *, cwd, worktree, resume, bg, allow_spend
                 "mode": mode, "tier": meta.get("tier"), "kind": meta.get("kind"),
                 "task": state.redact(str(meta.get("task") or ""))[:120], "cwd": str(wt or cwd),
                 "worktree": str(wt) if wt else None, "branch": branch, "snap": snap, "resume_of": resume,
-                "started": time.time(), "timeout_s": timeout_s})
+                "started": time.time(), "timeout_s": timeout_s, "est_cost": est})
     if bg:
         code = "import sys; sys.path.insert(0, sys.argv[1]); from lanelib import runner; runner.exec_job(sys.argv[2])"
         subprocess.Popen([sys.executable, "-I", "-c", code, str(SCRIPTS), jid], start_new_session=True,

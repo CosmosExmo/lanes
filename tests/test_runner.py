@@ -26,8 +26,10 @@ CODEX = {"pool": "chatgpt", "cli": "codex", "provider": None, "model": "gpt-6-lu
 META = {"tier": "T0", "kind": "read", "task": "unit test"}
 
 
-def P(pid, cli, billing="subscription", status="usable", windows=(), until=0.0):
-    return Pool(pid, cli, status, billing, False, list(windows), ["m"], "", NOW, [], until)
+def P(pid, cli, billing="subscription", status="usable", windows=(), until=0.0, provider=None, overage=False,
+      access=None):
+    acc = [{"cli": cli, "provider": provider, "models": []}] if access is None else access
+    return Pool(pid, cli, status, billing, overage, list(windows), ["m"], "", NOW, acc, until)
 
 
 class RunnerCase(unittest.TestCase):
@@ -77,6 +79,10 @@ class RunnerCase(unittest.TestCase):
                 self.start(**kw)
         self.assertEqual(cm.exception.code, code)
         return err.getvalue()
+
+    def jobs(self):
+        d = state.CACHE_DIR() / "jobs"
+        return os.listdir(d) if d.is_dir() else []
 
     def meta(self, jid):
         return json.loads((state.CACHE_DIR() / "jobs" / jid / "meta.json").read_text())
@@ -136,7 +142,7 @@ class RefusalTests(RunnerCase):
             self.assertIn("nested delegation refused", self.die(3))
 
     def test_api_lane_needs_allow_spend(self):
-        self.inv(P("api:deepseek", "opencode", billing="api", status="api_billing"))
+        self.inv(P("api:deepseek", "opencode", billing="api", status="api_billing", provider="deepseek"))
         lane = {"pool": "api:deepseek", "cli": "opencode", "provider": "deepseek", "model": "m", "effort": "low"}
         self.assertIn("approval needed: api:deepseek is api-billed", self.die(4, lane=lane))
         jid = self.start(lane, allow_spend=True)
@@ -152,6 +158,22 @@ class RefusalTests(RunnerCase):
         self.inv()
         self.assertIn("run lanes discover first", self.die(2))
 
+    def test_lane_must_be_in_the_pools_discovered_access(self):
+        """C1: the spend gate is bound to the lane that runs, not to the pool name the caller claims."""
+        self.inv(P("chatgpt", "codex", access=[{"cli": "codex", "provider": None, "models": ["gpt-6-luna-low"]},
+                                               {"cli": "pi", "provider": "openai-codex", "models": ["gpt-6-luna"]}]))
+        pi_api = {"pool": "chatgpt", "cli": "pi", "provider": "openai", "model": "gpt-6-luna", "effort": "low"}
+        self.assertIn("lane not in discovered access for chatgpt", self.die(2, lane=pi_api))
+        wrong_cli = {**CODEX, "cli": "opencode"}
+        self.assertIn("lane not in discovered access for chatgpt", self.die(2, lane=wrong_cli))
+        wrong_model = {**CODEX, "model": "gpt-9-sol"}
+        self.assertIn("lane not in discovered access for chatgpt", self.die(2, lane=wrong_model))
+        self.assertEqual(self.jobs(), [])  # nothing spawned or prepared
+        with mock.patch.object(discover, "read_pool_windows", return_value=None):
+            for lane in (CODEX, {**CODEX, "model": "gpt-6-luna-low"},  # effort suffix is not part of the base
+                         {**pi_api, "provider": "openai-codex"}):
+                self.assertEqual(self.meta(self.start(lane))["status"], "done")
+
     def test_write_job_needs_git_repo(self):
         self.assertIn("write jobs need a git repo", self.die(2, mode="write", worktree=True))
 
@@ -163,7 +185,67 @@ class RefusalTests(RunnerCase):
                     f()
 
 
+class PlanLimitTests(RunnerCase):
+    """C3: the runner re-checks the plan limit of overage-capable pools, it does not trust pick."""
+
+    def setUp(self):
+        super().setUp()
+        self.inv(P("chatgpt", "codex", overage=True))
+
+    def windows(self, used5h, usedw=10.0):
+        return [quota.Window("5h", used5h, NOW + 3600, 300), quota.Window("weekly", usedw, NOW + 86400, 10080)]
+
+    def run_with(self, ws, **kw):
+        with mock.patch.object(discover, "read_pool_windows", return_value=ws) as m:
+            return m, self.start(CODEX, **kw)
+
+    def test_job_that_would_cross_the_plan_limit_is_refused(self):
+        with mock.patch.object(discover, "read_pool_windows", return_value=self.windows(99.0)):
+            err = self.die(4, lane=CODEX)
+        self.assertIn("would cross the plan limit of chatgpt", err)
+        self.assertEqual(self.jobs(), [])
+
+    def test_allow_spend_overrides_the_plan_limit(self):
+        self.assertEqual(self.meta(self.run_with(self.windows(99.0), allow_spend=True)[1])["status"], "done")
+
+    def test_job_that_fits_runs_and_records_est_cost(self):
+        _, jid = self.run_with(self.windows(10.0))
+        m = self.meta(jid)
+        self.assertEqual(m["status"], "done")
+        self.assertEqual(set(m["est_cost"]), {"5h", "weekly"})
+
+    def test_unreadable_quota_fails_closed(self):
+        with mock.patch.object(discover, "read_pool_windows", return_value=None):
+            self.assertIn("would cross the plan limit of chatgpt", self.die(4, lane=CODEX))
+
+    def test_running_jobs_est_cost_is_subtracted(self):
+        other = state.CACHE_DIR() / "jobs" / "20200101-000000-aaaa"
+        other.mkdir(parents=True)
+        (other / "meta.json").write_text(json.dumps({"job": "x", "pool": "chatgpt", "status": "running",
+                                                      "started": NOW - 5, "pid": os.getpid(),
+                                                      "est_cost": {"5h": 14.0, "weekly": 1.0}}))
+        with mock.patch.object(discover, "read_pool_windows", return_value=self.windows(85.0)):
+            self.assertIn("would cross the plan limit", self.die(4, lane=CODEX))  # 15 left - 14 busy < 3
+        (other / "meta.json").write_text(json.dumps({"job": "x", "pool": "chatgpt", "status": "done",
+                                                      "started": NOW - 500, "finished": NOW - 400,
+                                                      "est_cost": {"5h": 14.0}}))
+        with mock.patch.object(discover, "read_pool_windows", return_value=self.windows(85.0)):
+            self.assertEqual(self.meta(self.start(CODEX))["status"], "done")  # 15 left >= 3
+
+    def test_non_overage_pools_are_not_checked(self):
+        self.inv(P("chatgpt", "codex"))
+        with mock.patch.object(discover, "read_pool_windows", return_value=None):  # would fail closed if checked
+            self.assertEqual(self.meta(self.start(CODEX))["status"], "done")
+
+
 class WorktreeTests(RunnerCase):
+    def test_write_modes_need_a_worktree(self):
+        """C4: write jobs never run in the caller's checkout."""
+        repo = self.repo()
+        for mode in ("write", "write_shell"):
+            self.assertIn("write jobs need --worktree", self.die(2, mode=mode, cwd=repo))
+        self.assertEqual(self.jobs(), [])
+
     def test_write_job_in_worktree_creates_branch(self):
         os.environ["STUB_MODE"] = "write"
         repo = self.repo()
