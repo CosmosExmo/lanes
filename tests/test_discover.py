@@ -313,6 +313,23 @@ class Discover(Base):
         self.assertEqual(state.read_inventory(None)["pools"].keys(), inv["pools"].keys())
         self.assertNotIn("@", (state.CACHE_DIR() / "inventory.json").read_text())
 
+    def seed_exhausted(self, until):
+        self.run_discover()
+        inv = state.read_inventory(None)
+        inv["pools"]["kimi"].update(status="exhausted", exhausted_until=until)
+        state.write_inventory(inv)
+
+    def test_future_exhausted_until_survives_rediscovery(self):
+        self.seed_exhausted(NOW + 1800)
+        for refresh in (False, True):
+            k = self.run_discover(refresh=refresh)["pools"]["kimi"]
+            self.assertEqual((k["status"], k["exhausted_until"]), ("exhausted", NOW + 1800))
+
+    def test_past_exhausted_until_is_cleared(self):
+        self.seed_exhausted(NOW - 5)
+        k = self.run_discover()["pools"]["kimi"]
+        self.assertEqual((k["status"], k["exhausted_until"]), ("logged_in_unverified", 0.0))
+
     def test_login_without_plan_is_unverified(self):
         inv = self.run_discover(probe=False)
         self.assertEqual(inv["pools"]["kimi"]["status"], "logged_in_unverified")
