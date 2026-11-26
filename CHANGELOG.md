@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.2 — 2026-11-26
+
+- Lane results always reach the orchestrating session: SKILL.md now says how to start a lane per harness (Claude Code: `lanes run` without `--bg` as a background Bash command, so the harness notifies you; elsewhere a blocking `lanes run`, or `--bg` followed immediately by `lanes wait`).
+- `lanes run --bg` warns on stderr that nothing will notify you and prints the `lanes wait` command to collect the job.
+
 ## 2.0.1 — 2026-11-26
 
 - Install with your agent: paste the prompt from the README; the agent follows `INSTALL.md` interactively (discovers subscriptions, asks before each change, optional probes).

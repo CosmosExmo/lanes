@@ -94,6 +94,8 @@ def cmd_run(args):
                            timeout_s=args.timeout, meta={"tier": args.tier, "kind": args.kind, "task": args.task})
     if args.bg:
         emit(args, {"job": jid, "status": "running"}, [jid])
+        print(f"lanes: {jid} runs detached and nothing will notify you when it ends; "
+              f"collect it with `lanes wait {jid}` before you end your turn", file=sys.stderr)
         return
     m = runner.wait_jobs([jid], 5)[0]
     ans = state.job_dir(jid) / "out.txt"

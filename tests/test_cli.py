@@ -202,6 +202,16 @@ class TestCli(CliCase):
         self.assertIn("worktree kept", r.stderr)
         self.assertEqual(json.loads(r.stdout)["status"], "partial")
 
+    def test_bg_run_tells_the_agent_to_collect_the_job(self):
+        self.inv()
+        args, _ = self._run_args("")
+        r = self.run_cli(*args, "--bg", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        jid = json.loads(r.stdout)["job"]
+        self.assertIn(f"lanes wait {jid}", r.stderr)
+        self.assertIn("nothing will notify you", r.stderr)
+        self.run_cli("wait", jid, "--timeout", "30")
+
     def test_wait_limit_job_exits_6(self):
         self.inv()
         args, _ = self._run_args("limit")

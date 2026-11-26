@@ -57,10 +57,21 @@ Run `lanes` if it is on PATH, otherwise `python3 <skill dir>/scripts/lanes.py`
 lanes discover                       # once per session: pools, billing, quota (cached 15 min). No model calls.
 lanes pick --tier T1 --kind write --task code --n 3
 lanes run --pool P --cli C [--provider V] --model M --effort E --mode write --worktree \
-          --prompt-file brief.md --bg --tier T1 --kind write --task code     # prints a job id
-lanes wait <id> [<id> ...]           # one blocking call for all jobs; never poll in a loop
+          --prompt-file brief.md --tier T1 --kind write --task code   # blocks until done, prints status + answer
+lanes wait <id> [<id> ...]           # collects --bg jobs: one blocking call for all of them; never poll in a loop
 lanes mark <id> used|reworked|wasted # outcome into the ledger; `lanes ledger` prints totals
 ```
+
+**Collect every lane — your session must hear back.** `--bg` detaches the job from your harness: nothing will
+notify you when it ends. Start lanes one of these two ways, and never end a turn with a lane that is neither:
+
+| Your harness | Start the lane | The result reaches you via |
+|---|---|---|
+| Claude Code (or any harness whose background shell notifies you on exit) | your Bash tool with `run_in_background: true`, running `lanes run ...` **without** `--bg` (parallel lanes: one background command each) | the harness's completion notification; then read that command's output |
+| Codex, Cursor, agy, or any harness without such notifications | one lane: `lanes run ...` without `--bg` (it blocks and returns the answer). Several in parallel: `lanes run ... --bg` per job, each prints a job id | the blocking `lanes run` itself; for `--bg` jobs, `lanes wait <id> [<id> ...]` as your very next command |
+
+`lanes wait` is a command you run, not something that wakes you: do not end the turn or answer the user between
+starting `--bg` jobs and waiting for them.
 
 **Plan line.** Before any delegation, fill this in and show it. An empty slot
 means you have not decided yet:
@@ -196,6 +207,7 @@ first. Limits: 20 concurrent subagents; workflow warns above 25 agents or
 | "Other CLIs are only for second opinions" | They are lanes for writes, research and reviews. A second opinion is one use. |
 | "The reviewer can be the same provider, it is a different model" | Same pool = same quota and same blind spots as the writer. `--author-pool` excludes it. |
 | "`lanes discover` is slow, I will guess the quotas" | One 20-60 s call, then cached 15 min. Guessed quotas route the bulk to the wrong pool. |
+| "I started it with `--bg`, I will be notified when it finishes" | `--bg` detaches from the harness; no notification ever comes. In Claude Code run `lanes run` (no `--bg`) as a background Bash command; elsewhere `lanes wait` before ending the turn. |
 | "It failed, so I will quietly do it myself" | Say it failed, take the next `pick` row, mark the dead one `wasted`. Doing it inline spends the top model. |
 
 ## Red Flags — STOP and re-plan
@@ -207,6 +219,7 @@ first. Limits: 20 concurrent subagents; workflow warns above 25 agents or
 - Delegating with no `lanes pick` (or `lanes discover`) before it, or no Plan line
 - A review whose pool equals the pool that wrote the diff
 - A write lane without `--worktree`, or a write called done from the exit code
+- Ending a turn after `lanes run --bg` without `lanes wait` on that id, or expecting a notification for a `--bg` job
 - `--allow-spend` without the user's yes, or an `approval=True` row run silently
 - More than 4 T2 agents, or a verifier per finding instead of per hypothesis
 - A brief without an output schema or without the `file:line` requirement
