@@ -49,7 +49,7 @@ lanes ledger --since 1d                          # totals
 ## Install
 
 ```
-git clone https://github.com/<owner>/lanes.git ~/dev/skills/lanes
+git clone https://github.com/CosmosExmo/lanes.git ~/dev/skills/lanes
 cd ~/dev/skills/lanes
 python3 scripts/lanes.py discover              # works straight from the checkout, before install
 python3 scripts/lanes.py install --dry-run     # show what would be linked
