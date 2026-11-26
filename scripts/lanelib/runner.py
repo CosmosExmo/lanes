@@ -337,11 +337,15 @@ def exec_job(job_id):
     return m
 
 
+def refuse_nested():
+    if os.environ.get("LANES_DEPTH"):
+        _die(3, "nested delegation refused: lanes run is not allowed inside a lanes worker")
+
+
 def start_job(lane, mode, prompt_file, *, cwd, worktree, resume, bg, allow_spend, timeout_s, meta):
     """Validate, prepare jobs/<id>/ (and a worktree for write jobs), then run it (inline, or detached
     when bg). Refusals exit with a code: 3 nested, 4 spend approval, 2 unavailable / no git repo."""
-    if os.environ.get("LANES_DEPTH"):
-        _die(3, "nested delegation refused: lanes run is not allowed inside a lanes worker")
+    refuse_nested()
     adapters, cfg = load_adapters(), state.load_config()
     a = adapters.get(lane["cli"])
     if a is None:

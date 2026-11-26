@@ -18,8 +18,9 @@ elif a[:2] == ["api", "provider.list"]:
     data.append({"id": "opencode", "integrationID": "opencode", "settings": {"baseURL": "https://z.example"}})
     print(json.dumps({"location": {}, "data": data}))
 elif a[:2] == ["api", "integration.list"]:
-    data = [{"id": i, "connections": [{"type": "credential", "id": "c1", "method": m}]}
-            for i, m in chosen.items()]
+    data = [{"id": i, "connections": [{"type": "credential", "id": "c1", "method": m} for m in ms.split("+")]
+             + ([{"type": "env", "id": "e1", "method": "key"}] if i == "openai" and os.environ.get("OPENAI_API_KEY") else [])}
+            for i, ms in chosen.items()]
     data.append({"id": "opencode", "connections": []})
     print(json.dumps({"location": {}, "data": data}))
 elif a[:1] == ["models"]:

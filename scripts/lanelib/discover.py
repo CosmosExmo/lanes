@@ -436,7 +436,7 @@ def _routed(a, name, provider, models, now, pools, conf=None):
 
 
 def _pi_providers(a):
-    """provider -> models, for providers pi holds credentials for (key names only; never values)."""
+    """provider -> (models, authType), for providers pi holds credentials for (key names only; never values)."""
     cand = set(_read_json(_home() / ".pi" / "agent" / "auth.json"))
     models = {}
     for line in run_cmd([a["bin"], "--list-models"], 30, child_env(a)).stdout.splitlines():
@@ -448,12 +448,13 @@ def _pi_providers(a):
     for prov in sorted(cand):
         st = _json_cmd(a, ["auth", "check", "--provider", prov, "--json", "--no-refresh"], 20)
         if st.get("status") == "ready":
-            out[prov] = models.get(prov, [])
+            out[prov] = (models.get(prov, []), st.get("authType"))
     return out
 
 
 def _opencode_providers(a):
-    """provider -> (models, has_oauth) for active providers that have a stored/env connection."""
+    """provider -> (models, set of connection methods) for active providers that have a stored/env
+    connection (listed under the stripped child env, so a stripped key is not a connection)."""
     prov = _json_cmd(a, ["api", "provider.list"]).get("data") or []
     conns = {i.get("id"): i.get("connections") or []
              for i in _json_cmd(a, ["api", "integration.list"]).get("data") or []}
@@ -466,7 +467,7 @@ def _opencode_providers(a):
     for pr in prov:
         cs = conns.get(pr.get("integrationID") or pr.get("id"))
         if cs:
-            out[pr["id"]] = (models.get(pr["id"], []), any(c.get("method") == "oauth" for c in cs))
+            out[pr["id"]] = (models.get(pr["id"], []), {c.get("method") or "key" for c in cs})
     return out
 
 
@@ -512,6 +513,31 @@ def _check_qwen(adapters, now):
     return [_fin(p, "qwen-subscription")]
 
 
+def _pi_conf(a, prov, kind):
+    """Only an oauth credential is the mapped subscription; any other credential type is pay-per-use."""
+    if kind == "oauth":
+        return None
+    mapped = a["providers"].get(prov)
+    if mapped and not mapped["route"]:
+        return mapped  # never routed (e.g. anthropic), whatever the credential
+    return {"pool": "api:" + prov, "billing": "api", "route": True}
+
+
+def _opencode_conf(a, prov, methods):
+    """None = the adapter's mapping. A provider is the subscription only when its remaining connections
+    are OAuth, or it is a mapped coding plan whose stored credential is the plan key; OAuth next to a stored
+    key is unknown billing (we cannot tell which one the CLI would use)."""
+    mapped = a["providers"].get(prov)
+    if mapped and (mapped["billing"] == "api" or not mapped["route"]):
+        return mapped
+    oauth, other = "oauth" in methods, bool(methods - {"oauth"})
+    if oauth and other:
+        return {"pool": "unknown:" + prov, "billing": "unknown", "route": True}
+    if other and mapped and mapped.get("oauth_only"):
+        return {"pool": "api:" + prov, "billing": "api", "route": True}
+    return None
+
+
 def check_router(name, adapters, now, pools=None):
     """One Pool per routable provider with credentials. `pools` (id -> Pool) supplies the official
     CLI's quota windows when it already read them."""
@@ -522,13 +548,10 @@ def check_router(name, adapters, now, pools=None):
     if _gate(p, a):
         return [p] if p.status == "adapter_broken" else []
     if name == "pi":
-        found = {prov: (ms, None) for prov, ms in _pi_providers(a).items()}
+        found = {prov: (ms, _pi_conf(a, prov, kind)) for prov, (ms, kind) in _pi_providers(a).items()}
     else:
-        found = {}
-        for prov, (models, oauth) in _opencode_providers(a).items():
-            # openai with a key/env connection only is pay-per-use, not the ChatGPT plan
-            api = prov == "openai" and not oauth
-            found[prov] = (models, {"pool": "api:openai", "billing": "api", "route": True} if api else None)
+        found = {prov: (ms, _opencode_conf(a, prov, methods))
+                 for prov, (ms, methods) in _opencode_providers(a).items()}
     return [x for x in (_routed(a, name, prov, ms, now, pools, conf) for prov, (ms, conf) in found.items()) if x]
 
 
@@ -592,6 +615,9 @@ def detect_self_pool(env, adapters=None):
         return prov.get("pool") if prov.get("route") and prov.get("billing") == "subscription" else None
     for var, pool in SELF_MARKERS:
         if env.get(var):
+            if pool == AGY_POOLS[0]:  # agy bills Claude/GPT models from another pool than Gemini ones
+                model = _read_json(_home() / ".gemini" / "antigravity-cli" / "settings.json").get("model")
+                return AGY_POOLS[1] if isinstance(model, str) and model.startswith(("claude-", "gpt-")) else pool
             return pool
     return "anthropic" if env.get("CLAUDECODE") == "1" else None
 

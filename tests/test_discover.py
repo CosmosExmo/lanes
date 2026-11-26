@@ -238,6 +238,49 @@ class Routers(Base):
         for bad in ("credential.list", "export", "opencode.jsonc"):
             self.assertNotIn(bad, flat)
 
+    def test_pi_credential_type_decides_billing(self):
+        """C2: only an oauth credential is the subscription; an API key is pay-per-use."""
+        os.environ["STUB_PI_READY"] = "openai-codex,xai,kimi-coding,anthropic,mystery"
+        os.environ["STUB_PI_AUTH"] = "openai-codex:api_key,xai:oauth,kimi-coding:missing,anthropic:api_key,mystery:oauth"
+        self.pi_auth(**{"openai-codex": 1, "xai": 1, "kimi-coding": 1, "anthropic": 1, "mystery": 1})
+        got = {p.id: (p.billing, p.status) for p in discover.check_router("pi", self.adapters, NOW)}
+        self.assertEqual(got, {"api:openai-codex": ("api", "api_billing"), "xai": ("subscription", "logged_in_unverified"),
+                               "api:kimi-coding": ("api", "api_billing"),
+                               "unknown:mystery": ("unknown", "logged_in_unverified")})  # anthropic never routed
+
+    def test_opencode_oauth_plus_stored_key_is_unknown_billing(self):
+        os.environ["STUB_OC"] = "openai:oauth+key,zai-coding-plan:oauth+key"
+        got = {p.id: p.billing for p in discover.check_router("opencode", self.adapters, NOW)}
+        self.assertEqual(got, {"unknown:openai": "unknown", "unknown:zai-coding-plan": "unknown"})
+
+    def test_opencode_coding_plan_credential_is_subscription(self):
+        os.environ["STUB_OC"] = "zai-coding-plan:key,kimi-for-coding:key"
+        got = {p.id: p.billing for p in discover.check_router("opencode", self.adapters, NOW)}
+        self.assertEqual(got, {"zai": "subscription", "kimi": "subscription"})
+
+    def test_opencode_stripped_env_key_does_not_count_as_a_connection(self):
+        os.environ["STUB_OC"] = "openai:oauth"
+        os.environ["OPENAI_API_KEY"] = "sk-test"  # stripped from the child env, so opencode never sees it
+        (p,) = discover.check_router("opencode", self.adapters, NOW)
+        self.assertEqual((p.id, p.billing), ("chatgpt", "subscription"))
+
+    def test_every_adapter_strips_every_known_provider_key(self):
+        keys = {"OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+                "CURSOR_API_KEY", "CURSOR_AUTH_TOKEN", "MOONSHOT_API_KEY", "KIMI_API_KEY", "XAI_API_KEY",
+                "DEEPSEEK_API_KEY", "ZHIPU_API_KEY", "ZAI_API_KEY", "DASHSCOPE_API_KEY", "OPENROUTER_API_KEY",
+                "GROQ_API_KEY", "MISTRAL_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN"}
+        plan = {"BAILIAN_CODING_PLAN_API_KEY", "BAILIAN_TOKEN_PLAN_API_KEY"}
+        for cli, a in ADAPTERS.items():
+            self.assertLessEqual(keys, set(a["env_strip"]), cli)
+            # qwen's coding-plan keys are subscription keys: only qwen keeps them
+            self.assertEqual(plan <= set(a["env_strip"]), cli != "qwen", cli)
+            self.assertEqual(plan & set(a["env_strip"]) == set(), cli == "qwen", cli)
+        os.environ.update({k: "x" for k in keys | plan})
+        env = discover.child_env(ADAPTERS["qwen"], "read")
+        self.assertEqual(sorted(plan & set(env)), sorted(plan))
+        self.assertFalse(keys & set(env))
+        self.assertFalse(plan & set(discover.child_env(ADAPTERS["pi"], "read")))
+
     def test_qwen_coding_plan_base_url_is_subscription(self):
         self.put(".qwen/settings.json", {
             "security": {"auth": {"selectedType": "openai"}}, "model": {"name": "qwen3-coder-plus"},
@@ -519,6 +562,17 @@ class Misc(Base):
         # opencode's session id alone does not name a pool; the user's own OPENCODE_* settings are not a marker
         self.assertIsNone(discover.detect_self_pool({"OPENCODE_SESSION_ID": "s", "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1"}))
         self.assertIsNone(discover.detect_self_pool({"CODEX_COMPANION_SESSION_ID": "s"}))
+
+    def test_agy_marker_follows_the_selected_model(self):
+        """I1: the agy session pool depends on the model chosen in settings.json."""
+        env = {"ANTIGRAVITY_AGENT": "1"}
+        self.assertEqual(discover.detect_self_pool(env), "google:gemini")  # no settings file
+        for model, pool in (("gemini-3.8-flash-low", "google:gemini"), ("claude-sonnet-5-5-low", "google:claude-gpt"),
+                            ("gpt-oss-120b-medium", "google:claude-gpt"), ("", "google:gemini")):
+            self.put(".gemini/antigravity-cli/settings.json", {"model": model})
+            self.assertEqual(discover.detect_self_pool(env), pool, model)
+        self.put(".gemini/antigravity-cli/settings.json", "not json")
+        self.assertEqual(discover.detect_self_pool(env), "google:gemini")
 
     def test_read_pool_windows(self):
         ws = discover.read_pool_windows("anthropic", self.adapters, {}, NOW)

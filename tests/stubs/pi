@@ -14,7 +14,11 @@ elif a[:1] == ["--help"]:
 elif a[:2] == ["auth", "check"]:
     p = a[a.index("--provider") + 1]
     ok = p in ready
-    print(json.dumps({"status": "ready" if ok else "not_ready", "provider": p, "authType": "oauth"}))
+    kinds = dict(x.split(":") for x in os.environ.get("STUB_PI_AUTH", "").split(",") if x)
+    d = {"status": "ready" if ok else "not_ready", "provider": p, "authType": kinds.get(p, "oauth")}
+    if kinds.get(p) == "missing":
+        del d["authType"]
+    print(json.dumps(d))
     sys.exit(0 if ok else 1)
 elif a[:1] == ["auth"]:
     sys.stderr.write("secret-bearer-token\n")

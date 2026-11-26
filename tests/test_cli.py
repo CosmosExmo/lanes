@@ -138,11 +138,29 @@ class TestCli(CliCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("own pool", r.stderr)
 
+    def test_run_needs_to_know_its_own_pool(self):
+        """I1: no detected harness and no --from must not silently skip the own-pool refusal."""
+        self.inv()
+        pf = self.tmp / "p.txt"
+        pf.write_text("hi")
+        base = ["run", "--pool", "kimi", "--cli", "kimi", "--model", "kimi-for-coding-highspeed", "--effort",
+                "low", "--mode", "read", "--prompt-file", str(pf)]
+        r = self.run_cli(*base)
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("cannot tell your own pool; pass --from <pool> or --from none", r.stderr)
+        self.assertEqual(self.run_cli(*base, "--from", "none").returncode, 0)
+        r = self.run_cli(*base, "--from", "kimi")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("own pool", r.stderr)
+        self.assertEqual(self.run_cli(*base, "--from", "anthropic").returncode, 0)
+        self.assertEqual(self.run_cli(*base, "--from", "kimi", "--allow-self").returncode, 0)
+        self.assertEqual(self.run_cli(*base, LANES_DEPTH="1").returncode, 3)  # nested wins over the unknown pool
+
     def _run_args(self, mode):
         pf = self.tmp / "p.txt"
         pf.write_text("hi")
         return ["run", "--pool", "kimi", "--cli", "kimi", "--model", "kimi-for-coding-highspeed", "--effort",
-                "low", "--mode", "read", "--prompt-file", str(pf)], mode
+                "low", "--mode", "read", "--prompt-file", str(pf), "--from", "none"], mode
 
     def test_foreground_failed_job_exits_6(self):
         self.inv()

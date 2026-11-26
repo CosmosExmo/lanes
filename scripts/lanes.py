@@ -57,7 +57,7 @@ def cmd_pick(args):
     pools = {k: discover.Pool.from_dict(v) for k, v in inv["pools"].items()}
     caps = json.loads((REPO / "capabilities.json").read_text())
     req = pick.Request(args.tier, args.kind, args.task or "", args.needs_shell, args.author_pool,
-                       args.from_pool or self_pool(), args.n)
+                       own_pool(args.from_pool), args.n)
     cands = pick.rank(pools, caps, runner.load_adapters(), state.load_config(), req,
                       state.read_ledger(), time.time())
     emit(args, [c.to_dict() for c in cands],
@@ -66,8 +66,19 @@ def cmd_pick(args):
           for c in cands])
 
 
+def own_pool(from_pool, required=False):
+    """--from <pool> | none, else the detected harness pool; unknown + required is an error (never skip silently)."""
+    if from_pool is not None:
+        return None if from_pool == "none" else from_pool
+    own = self_pool()
+    if own is None and required:
+        runner._die(2, "cannot tell your own pool; pass --from <pool> or --from none")
+    return own
+
+
 def cmd_run(args):
-    if args.pool == self_pool() and not args.allow_self:
+    runner.refuse_nested()
+    if args.pool == own_pool(args.from_pool, True) and not args.allow_self:
         runner._die(2, f"{args.pool} is your own pool; use a native subagent")
     lane = {"pool": args.pool, "cli": args.cli, "provider": args.provider, "model": args.model,
             "effort": args.effort}
@@ -205,6 +216,8 @@ def main(argv=None):
     s.add_argument("--resume")
     s.add_argument("--allow-spend", action="store_true")
     s.add_argument("--allow-self", action="store_true")
+    s.add_argument("--from", dest="from_pool", metavar="POOL|none",
+                   help="the pool your own harness bills against (or none); needed when it cannot be detected")
     s.add_argument("--timeout", type=int, default=1800)
     s.add_argument("--tier")
     s.add_argument("--kind")
