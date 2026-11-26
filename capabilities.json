@@ -1,0 +1,33 @@
+{
+  "models": [
+    {"pattern": "haiku", "pool": "anthropic", "cli": "claude", "tiers": ["T0"], "strengths": ["research", "docs"]},
+    {"pattern": "sonnet", "pool": "anthropic", "cli": "claude", "tiers": ["T1", "T2"], "strengths": ["code", "review", "research"]},
+    {"pattern": "opus", "pool": "anthropic", "cli": "claude", "tiers": ["T2"], "strengths": ["code", "review", "plan"]},
+    {"pattern": "fable", "pool": "anthropic", "cli": "claude", "tiers": ["T2"], "strengths": ["plan", "review"]},
+    {"pattern": "gpt-5.6-luna", "pool": "chatgpt", "cli": "codex", "tiers": ["T0"], "strengths": ["research", "docs"]},
+    {"pattern": "gpt-6-luna", "pool": "chatgpt", "cli": "codex", "tiers": ["T0", "T1"], "strengths": ["code", "research", "docs"]},
+    {"pattern": "gpt-5.6-terra", "pool": "chatgpt", "cli": "codex", "tiers": ["T1"], "strengths": ["code"]},
+    {"pattern": "gpt-6.1-terra", "pool": "chatgpt", "cli": "codex", "tiers": ["T1"], "strengths": ["code"]},
+    {"pattern": "gpt-5.6-sol", "pool": "chatgpt", "cli": "codex", "tiers": ["T1", "T2"], "strengths": ["code", "review"]},
+    {"pattern": "gpt-6-sol", "pool": "chatgpt", "cli": "codex", "tiers": ["T1", "T2"], "strengths": ["code", "review"]},
+    {"pattern": "gpt-6.1-sol", "pool": "chatgpt", "cli": "codex", "tiers": ["T1", "T2"], "strengths": ["code", "review"]},
+    {"pattern": "gpt-6.2-sol", "pool": "chatgpt", "cli": "codex", "tiers": ["T1", "T2"], "strengths": ["code", "review"]},
+    {"pattern": "gpt-6-astra", "pool": "chatgpt", "cli": "codex", "tiers": ["T2"], "strengths": ["plan", "code", "review"]},
+    {"pattern": "gpt-6.2-astra", "pool": "chatgpt", "cli": "codex", "tiers": ["T2"], "strengths": ["plan", "code", "review"]},
+    {"pattern": "gemini-3.8-flash*", "pool": "google:gemini", "cli": "agy", "tiers": ["T0"], "strengths": ["research", "docs"]},
+    {"pattern": "gemini-4-*", "pool": "google:gemini", "cli": "agy", "tiers": ["T1", "T2"], "strengths": ["research", "ui", "review"]},
+    {"pattern": "gpt-oss-120b*", "pool": "google:claude-gpt", "cli": "agy", "tiers": ["T0"], "strengths": ["research", "docs"]},
+    {"pattern": "claude-sonnet-5-5*", "pool": "google:claude-gpt", "cli": "agy", "tiers": ["T1", "T2"], "strengths": ["code", "review"]},
+    {"pattern": "claude-opus-5-5*", "pool": "google:claude-gpt", "cli": "agy", "tiers": ["T2"], "strengths": ["code", "review", "plan"]},
+    {"pattern": "composer-2.5*", "pool": "cursor", "cli": "cursor", "tiers": ["T0", "T1"], "strengths": ["code"]},
+    {"pattern": "claude-sonnet-5*", "pool": "cursor", "cli": "cursor", "tiers": ["T1", "T2"], "strengths": ["code", "review"]},
+    {"pattern": "gpt-5.6-sol*", "pool": "cursor", "cli": "cursor", "tiers": ["T2"], "strengths": ["review"]},
+    {"pattern": "kimi-for-coding-highspeed", "pool": "kimi", "cli": "kimi", "tiers": ["T0"], "strengths": ["research", "docs"]},
+    {"pattern": "kimi-for-coding", "pool": "kimi", "cli": "kimi", "tiers": ["T1"], "strengths": ["code"]},
+    {"pattern": "k3*", "pool": "kimi", "cli": "kimi", "tiers": ["T1", "T2"], "strengths": ["code", "review"]},
+    {"pattern": "glm-*", "pool": "zai", "cli": "opencode", "tiers": ["T1"], "strengths": ["code"]},
+    {"pattern": "grok-4.3*", "pool": "xai", "cli": "pi", "tiers": ["T0"], "strengths": ["research", "docs"]},
+    {"pattern": "grok-4.5*", "pool": "xai", "cli": "pi", "tiers": ["T1"], "strengths": ["research"]},
+    {"pattern": "qwen3-coder*", "pool": "qwen", "cli": "qwen", "tiers": ["T1"], "strengths": ["code"]}
+  ]
+}

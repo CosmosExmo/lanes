@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+import json
+import os
+import sys
+from _common import *
+
+log("pi")
+a = sys.argv[1:]
+ready = [x for x in os.environ.get("STUB_PI_READY", "openai-codex").split(",") if x]
+if a[:1] == ["--version"]:
+    print("1.6.0")
+elif a[:1] == ["--help"]:
+    show_help("pi")
+elif a[:2] == ["auth", "check"]:
+    p = a[a.index("--provider") + 1]
+    ok = p in ready
+    print(json.dumps({"status": "ready" if ok else "not_ready", "provider": p, "authType": "oauth"}))
+    sys.exit(0 if ok else 1)
+elif a[:1] == ["auth"]:
+    sys.stderr.write("secret-bearer-token\n")
+    sys.exit(99)
+elif a[:1] == ["--list-models"]:
+    print("provider  model  context  max-out  thinking  images")
+    for p in ready:
+        print(f"{p}  model-a  200K  16K  yes  no")
+else:
+    model_call()

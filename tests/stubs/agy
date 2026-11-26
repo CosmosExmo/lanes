@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+import json
+import sys
+from _common import *
+
+log("agy")
+a = sys.argv[1:]
+if a[:1] == ["--version"]:
+    print("1.5.18")
+elif a[:1] == ["--help"]:
+    show_help("agy")
+elif a[:1] == ["models"]:
+    print("Fetching available models...")
+    for i, n in [("gemini-3.8-flash-low", "Gemini Flash Low"), ("gemini-4-pro-high", "Gemini Pro"),
+                 ("claude-sonnet-5-5-low", "Claude Sonnet"), ("gpt-oss-120b-medium", "GPT OSS")]:
+        print(f"{i}\t{n}")
+elif a[:2] == ["-p", "/usage"]:
+    if has("agy_api"):
+        sys.stderr.write("usage is unavailable with an API key\n")
+        sys.exit(2)
+    print(fixture("agy_usage.json"))
+elif a[:2] == ["-p", "/credits"]:
+    print(json.dumps({"command": {"data": {"remaining_credits": 5 if has("credits") else 0}}}))
+else:
+    model_call()

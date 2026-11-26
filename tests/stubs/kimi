@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+import sys
+from _common import *
+
+log("kimi")
+a = sys.argv[1:]
+if a[:1] == ["--version"]:
+    print("2.7.2")
+elif a[:1] == ["--help"]:
+    show_help("kimi")
+elif a[:2] == ["provider", "list"]:
+    if not has("logged_out"):
+        print("managed:kimi-code  type=kimi  models=4  source=oauth\n\nDefault model: kimi-code/k3")
+else:
+    model_call()

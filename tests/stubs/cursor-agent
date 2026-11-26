@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+import json
+import sys
+from _common import *
+
+log("cursor-agent")
+a = sys.argv[1:]
+if a[:1] == ["--version"]:
+    print("2026.11.22-stub")
+elif a[:1] == ["--help"]:
+    show_help("cursor")
+elif a[:1] == ["status"]:
+    print(json.dumps({"status": "authenticated", "isAuthenticated": not has("logged_out"),
+                      "userInfo": {"email": EMAIL}}))
+elif a[:1] == ["about"]:
+    print(json.dumps({"subscriptionTier": "Pro", "userEmail": EMAIL}))
+elif a[:1] == ["--list-models"]:
+    print("Available models\n")
+    print("composer-2.5 - Composer 2.5\nclaude-sonnet-5-medium - Sonnet 5\ngpt-5.6-sol-high - GPT Sol")
+else:
+    model_call()
