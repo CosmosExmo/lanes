@@ -50,8 +50,8 @@ lanes ledger --since 1d                          # totals
 Linked into a Claude Code skills directory, the repo also loads as a skills-directory plugin (`lanes@skills-dir`) with
 two hooks, both switchable in the config file:
 
-- **Prompt hint** (on by default): a prompt that asks for token-efficient work, quota relief, a second opinion or a
-  cross-provider review, in English or Turkish, gets one added line telling the agent to load the `lanes` skill.
+- **Prompt hint** (off by default): a prompt that asks for token-efficient work, quota relief, a second opinion or a
+  cross-provider review gets one added line telling the agent to load the `lanes` skill.
 - **Agent guard** (off by default): refuses an `Agent`/`Task` call that does not name both `model` and `effort`, with a reason
   the agent can act on. Forks are exempt.
 
@@ -121,7 +121,7 @@ Optional file `~/.config/lanes/config.json` (override with `$LANES_CONFIG`):
 | `cursor_read_quota` | `false` | Allow reading Cursor usage with the local token |
 | `agy_allow_shell` | `false` | Allow agy lanes to run shell commands |
 | `orchestrator_reserve_pct` | `3` | Share of your own pool's window held back for synthesis |
-| `prompt_hint` | `true` | Point the agent at the skill on matching prompts (hook) |
+| `prompt_hint` | `false` | Point the agent at the skill on matching prompts (hook) |
 | `agent_guard` | `false` | Refuse Claude Code `Agent`/`Task` calls without `model` and `effort` (hook) |
 
 State lives in `~/.cache/lanes` (override with `$LANES_CACHE`): `inventory.json`, `ledger.jsonl`, `jobs/<id>/`, `worktrees/<id>/`.
@@ -137,7 +137,9 @@ lanes selftest          # offline checks; add --live for one cheap probe per ver
 
 Claude Code lists skill descriptions within a budget of about 1% of the context window. With many skills installed it
 drops the descriptions of the least-used ones, and `lanes` may show by name only, so a request like "work
-token-efficiently" no longer matches it. The prompt hint covers this. You can also raise `skillListingBudgetFraction`
+token-efficiently" no longer matches it. Even when the description is listed, a small task with "work token-efficiently"
+tacked on often does not load the skill. Turn on the prompt hint (`"prompt_hint": true`) to cover both. You can also
+raise `skillListingBudgetFraction`
 in your Claude Code settings, turn off skills you do not use (`/skill-doctor` lists them), or type `/lanes`.
 
 ## Development

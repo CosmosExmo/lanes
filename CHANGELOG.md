@@ -1,9 +1,16 @@
 # Changelog
 
+## 2.1.1 — 2026-11-27
+
+- The prompt hint is now off by default, like the agent guard: nothing changes for you on update until you turn it on with `"prompt_hint": true` in `~/.config/lanes/config.json` (INSTALL.md asks during install).
+- The prompt hint tells the agent to invoke the skill first, even for a small task. With it, every test session loaded `lanes` for a small task plus "work token-efficiently"; with 2.0.2 none did.
+- Everything in the skill is English: description, examples, eval cases and the prompt hint's phrases. The description says requests in any language count.
+- The description also names "parallel agents". New eval case for the small-task phrasing.
+
 ## 2.1.0 — 2026-11-27
 
-- The skill triggers more reliably. New description in the third person, key use first, with Turkish phrases ("token verimli çalış", "ikinci görüş", "Codex'e sor") and example requests in `when_to_use`.
-- Claude Code loads the repo as a skills-directory plugin with two hooks: a prompt hint that points the agent at the skill on matching English or Turkish prompts (on by default, `prompt_hint`), and an agent guard that refuses an `Agent`/`Task` call without `model` and `effort` (off by default, `agent_guard`).
+- The skill triggers more reliably. New description in the third person, key use first, with example requests in `when_to_use`.
+- Claude Code loads the repo as a skills-directory plugin with two hooks: a prompt hint that points the agent at the skill on matching prompts (on by default, `prompt_hint`), and an agent guard that refuses an `Agent`/`Task` call without `model` and `effort` (off by default, `agent_guard`).
 - SKILL.md puts The Rule, collecting every lane and the red flags first, so they survive context compaction.
 - `allowed-tools: Bash(lanes *)` pre-approves the `lanes` command while the skill runs.
 - Trigger-rate eval suite in `evals/` for `claude plugin eval`.

@@ -7,7 +7,7 @@
 Reads the hook payload on stdin: Claude Code's own JSON, or a neutral envelope with the same
 `prompt` / `tool_name` / `tool_input` keys plus `harness`. Exit 0 = continue (stdout becomes
 context); exit 2 = block, reason on stderr. Any internal error exits 0 so a broken hook never
-stops the session. Switches: `prompt_hint` (default on) and `agent_guard` (default off) in the
+stops the session. Switches: `prompt_hint` and `agent_guard` (both default off) in the
 lanes config file.
 """
 import json
@@ -18,33 +18,26 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-# Matched against the prompt lowercased with Turkish dotted/dotless i folded to "i" and
-# apostrophes removed. Compound phrases only, so "rate limit", SQL LIMIT or "ucuz mu" stay quiet.
+# Matched against the lowercased prompt with apostrophes removed. Compound phrases only, so
+# "rate limit", SQL LIMIT or "the cheapest option" stay quiet.
 TRIGGERS = re.compile("|".join([
-    r"token[- ]?ef+i", r"\bef+ici?e?nt(ly)? (çali[sş]|work)", r"\bsav(e|ing) tokens",
-    r"token (budget|saving|tasarruf|harca|yak|israf)", r"\b(weekly|haftalik) (is |at )*%?\d",
+    r"token[- ]?ef+i", r"\bef+ici?e?nt(ly)? work", r"\bsav(e|ing) tokens", r"token (budget|saving)",
+    r"\b(weekly|5h) (is |at )*%?\d",
     r"\b(usage|weekly|subscription|plan|5h|5-hour|session) (limit|quota)",
     r"\b(limit|quota) (is )?(almost |nearly )?(full|filling|running out|exhausted)",
     r"second opinion", r"cross[- ](provider |model )?review",
     r"review(ed)? (it )?(by|with|from) (another|a different|other) (provider|model|agent)",
+    r"\b(another|a different) (model|provider) (review|look|check)",
     r"\bask (codex|gemini|claude|cursor|agy|kimi|qwen)\b",
     r"\b(spread|distribute|split) (the )?(load|work)", r"\bparallel (agents|sessions|subagents|workers)",
-    r"\bcheap(er)? (model|lane|agent)", r"\bsub-?agents?\b",
-    r"\b(use|with|via|run|install|update) lanes\b", r"\blanes (kur|install|update|güncelle|ile|kullan|run|pick)",
-    r"\blanes(i|e|le|la|ten) ", r"başka (bir )?(model|sağlayici|provider|ajan)\w* (review|incele|kontrol|bak)",
-    r"verimli (çali[sş]|kullan)", r"token verimli", r"tasarruflu (çali[sş]|kullan)",
-    r"\b(kota|limit)(m|im|miz|imiz|i|si|ler|lerim)? (dol|bit|az kal|yet)",
-    r"(haftalik|5 saatlik|günlük|aylik) (limit|kota)",
-    r"ikinci (bir )?görü[sş]", r"çapraz (review|inceleme|kontrol)",
-    r"\b(codex|gemini|claude|cursor|agy|kimi|qwen)(e|a|ye|ya)? sor",
-    r"\b(i[sş]i|i[sş]leri|yükü) (dağit|payla[sş])",
-    r"\bparalel (ajan|agent|oturum|session)", r"\bucuz (model|ajan|agent|lane)", r"\balt ?ajan",
+    r"\bcheap(er|ly)? (model|lane|agent)", r"\bsub-?agents?\b",
+    r"\b(use|with|via|run|install|update) lanes\b", r"\blanes (install|update|run|pick)",
 ]))
 
-HINT = ("lanes: this request is about token-efficient or cross-provider agent work. Load the `lanes` "
-        "skill before planning or spawning anything (Skill tool in Claude Code; elsewhere read its "
-        "SKILL.md) and follow it: every spawn names a model and an effort, and bulk or review work "
-        "goes to the pool `lanes pick` ranks first.")
+HINT = ("lanes: the user asked for token-efficient, quota-aware or cross-provider work. Invoke the `lanes` skill as "
+        "your first action, before any other tool call, even if the task looks small (Skill tool in Claude Code; "
+        "elsewhere read its SKILL.md). The skill itself decides whether to work inline, spawn a subagent or use "
+        "another subscription; you report which in one line.")
 
 GUARD = ("lanes agent guard: this {tool} call has no explicit {missing}. An omitted model inherits the "
          "session's own (most expensive) model, and an omitted effort falls back to that model's default. "
@@ -56,8 +49,7 @@ GUARD = ("lanes agent guard: this {tool} call has no explicit {missing}. An omit
 
 
 def normalize(text):
-    text = text.replace("İ", "i").replace("I", "i").replace("ı", "i").lower()
-    return re.sub(r"['’`]", "", text)
+    return re.sub(r"['\u2019`]", "", text.lower())
 
 
 def hint(payload):

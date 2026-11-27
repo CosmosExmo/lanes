@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 DEFAULT_CONFIG = {"cursor_read_quota": False, "agy_allow_shell": False,
-                  "orchestrator_reserve_pct": 3, "prompt_hint": True, "agent_guard": False}
+                  "orchestrator_reserve_pct": 3, "prompt_hint": False, "agent_guard": False}
 
 
 def CACHE_DIR() -> Path:

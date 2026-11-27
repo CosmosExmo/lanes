@@ -1,6 +1,6 @@
 {
   "name": "lanes",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Spread agent work across all your AI subscriptions: quota-aware routing, cross-provider review, token-efficient spawns.",
   "author": {
     "name": "CosmosExmo"

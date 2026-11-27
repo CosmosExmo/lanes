@@ -12,16 +12,15 @@ ROOT = Path(__file__).resolve().parent.parent
 HOOK = ROOT / "hooks" / "lanes_hook.py"
 
 SHOULD_HINT = [
-    "token efficent çalış", "Token verimli çalış lütfen", "İkinci görüş alalım", "Bunu Codex'e sor",
-    "Gemini’ye sorsana", "Claude limitim doluyor", "haftalık limit %84 oldu", "işi dağıt",
+    "token efficent please", "work token-efficiently", "Work Token Efficiently on this",
     "get a second opinion on this diff", "my weekly limit is almost full", "weekly is at 84%",
-    "use lanes for this", "cross-review the change", "ask codex what it thinks", "paralel ajan kullan",
-    "kotam doluyor", "bu diffi başka bir modele review ettir", "lanes kur", "spin up three subagents",
+    "my usage limit is filling up", "use lanes for this", "install lanes", "cross-review the change",
+    "ask codex what it thinks", "Ask Gemini first", "spread the work across my subscriptions",
+    "spin up three subagents", "have another model review this diff", "run parallel agents on it",
 ]
 SHOULD_NOT_HINT = [
-    "add a rate limit to the API", "SELECT * FROM t LIMIT 10", "bu ürün ucuz mu",
-    "kota alanını formda göster", "fix the login bug", "token refresh is broken",
-    "Claude Code'da yeni bir proje aç", "the cheapest option is fine", "add highway lanes to the map",
+    "add a rate limit to the API", "SELECT * FROM t LIMIT 10", "fix the login bug", "token refresh is broken",
+    "the cheapest option is fine", "add highway lanes to the map", "show the quota field on the form",
 ]
 CLAUDE_AGENT = {"session_id": "s", "hook_event_name": "PreToolUse", "tool_name": "Agent",
                 "tool_input": {"description": "d", "prompt": "p", "subagent_type": "general-purpose",
@@ -35,6 +34,8 @@ class HookCase(unittest.TestCase):
         self.cfg = self.tmp / "cfg.json"
 
     def run_hook(self, mode, payload, cfg=None, **env):
+        if cfg is None and mode == "hint":
+            cfg = {"prompt_hint": True}
         if cfg is not None:
             self.cfg.write_text(json.dumps(cfg))
         e = {k: v for k, v in os.environ.items() if k != "LANES_DEPTH"}
@@ -57,12 +58,16 @@ class HookCase(unittest.TestCase):
                 self.assertEqual((r.returncode, r.stdout), (0, ""))
 
     def test_hint_reads_the_neutral_envelope(self):
-        r = self.run_hook("hint", {"harness": "codex", "event": "UserPromptSubmit", "prompt": "ikinci görüş"})
+        r = self.run_hook("hint", {"harness": "codex", "event": "UserPromptSubmit", "prompt": "second opinion"})
         self.assertIn("lanes", r.stdout)
 
     def test_hint_off_inside_a_lane_or_by_config(self):
         self.assertEqual(self.run_hook("hint", {"prompt": "second opinion"}, LANES_DEPTH="1").stdout, "")
         self.assertEqual(self.run_hook("hint", {"prompt": "second opinion"}, {"prompt_hint": False}).stdout, "")
+
+    def test_hint_is_off_by_default(self):
+        r = self.run_hook("hint", {"prompt": "second opinion"}, {})
+        self.assertEqual((r.returncode, r.stdout), (0, ""))
 
     def test_guard_is_off_by_default(self):
         bare = {**CLAUDE_AGENT, "tool_input": {"prompt": "p"}}

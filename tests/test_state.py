@@ -90,7 +90,7 @@ class StateCase(unittest.TestCase):
     def test_load_config_defaults(self):
         self.assertEqual(state.load_config(), {
             "cursor_read_quota": False, "agy_allow_shell": False,
-            "orchestrator_reserve_pct": 3, "prompt_hint": True, "agent_guard": False})
+            "orchestrator_reserve_pct": 3, "prompt_hint": False, "agent_guard": False})
 
     def test_load_config_merges_file(self):
         with open(os.environ["LANES_CONFIG"], "w") as f:

@@ -78,9 +78,9 @@ Ask about each, explain the trade-off, and write `~/.config/lanes/config.json` o
 - `agy_allow_shell` (default `false`): lets agy lanes run shell commands (for jobs that need tests). Leave off unless
   they want agy to take such jobs.
 - `orchestrator_reserve_pct` (default `3`): share of the user's own session pool kept for the orchestrating agent.
-- `prompt_hint` (default `true`): when a prompt asks for token-efficient work, quota relief, a second opinion or a
-  cross-provider review (English or Turkish), a hook adds one line telling the agent to load the `lanes` skill. It
-  helps when the agent has so many skills that it sees `lanes` by name only.
+- `prompt_hint` (default `false`): when a prompt asks for token-efficient work, quota relief, a second opinion or a
+  cross-provider review, a hook adds one line telling the agent to load the `lanes` skill. It
+  helps when the agent has so many skills that it sees `lanes` by name only. Recommend turning it on.
 - `agent_guard` (default `false`): in Claude Code, refuses an `Agent`/`Task` call that does not name both `model` and `effort`,
   and tells the agent what to pass. Forks are exempt. Turn it on if they want The Rule enforced, not just taught.
 
