@@ -67,6 +67,8 @@ Show the planned links and ask for a yes. Then run `python3 scripts/lanes.py ins
   - Qwen: link the repo as `~/.qwen/skills/lanes`
   If a key already exists, append to it instead of replacing it. Show the user the exact change and apply it only after
   they confirm. If a harness does not match any of these, tell the user and skip it rather than guessing.
+- Claude Code: the repo has a `.claude-plugin/plugin.json`, so its link in a Claude Code skills directory also loads as a
+  skills-directory plugin (`/plugin` lists `lanes@skills-dir`) with the two hooks from step 5. Nothing to configure.
 
 ## 5. Options
 
@@ -76,6 +78,16 @@ Ask about each, explain the trade-off, and write `~/.config/lanes/config.json` o
 - `agy_allow_shell` (default `false`): lets agy lanes run shell commands (for jobs that need tests). Leave off unless
   they want agy to take such jobs.
 - `orchestrator_reserve_pct` (default `3`): share of the user's own session pool kept for the orchestrating agent.
+- `prompt_hint` (default `true`): when a prompt asks for token-efficient work, quota relief, a second opinion or a
+  cross-provider review (English or Turkish), a hook adds one line telling the agent to load the `lanes` skill. It
+  helps when the agent has so many skills that it sees `lanes` by name only.
+- `agent_guard` (default `false`): in Claude Code, refuses an `Agent`/`Task` call that does not name both `model` and `effort`,
+  and tells the agent what to pass. Forks are exempt. Turn it on if they want The Rule enforced, not just taught.
+
+The prompt hint also works in harnesses whose prompt-submit hook passes the prompt as `prompt` in its stdin JSON and
+adds the hook's output to the context (Codex, Qwen and Kimi `UserPromptSubmit`). If the user wants it there, register
+`python3 <repo>/hooks/lanes_hook.py hint` as that hook. Show the exact change to that harness's hooks config and apply
+it only after they confirm. Skip harnesses whose prompt hook cannot add context.
 
 ## 6. Verify
 

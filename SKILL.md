@@ -1,7 +1,10 @@
 ---
 name: lanes
-description: Use when delegating work to subagents or other agent CLIs, or when a subscription limit is a concern. Triggers - "lanes", "update lanes", "install lanes"; before spawning ANY subagent, Explore/Plan agent, workflow agent, fork, parallel worker or background job; a Claude, Codex, Gemini/agy or Cursor limit or quota is filling up ("limit", "kota", "quota", "limit doldu", "weekly is at 84%"); "ask Gemini", "ask Codex", "ask Claude", "Gemini'ye sor", "Codex'e sor", "ikinci görüş", "çapraz review", "review this diff"; or the user wants a token-efficient, quota-aware, cheap ("ucuz") workflow, in any harness (Claude Code, Codex, agy, Cursor, pi, OpenCode, Kimi, Qwen).
+description: Routes agent work across every AI subscription on the machine (Claude, ChatGPT/Codex, Google/agy, Cursor, pi, OpenCode, Kimi, Qwen) by remaining quota and model strength, sends reviews to a different provider, and keeps every spawn token-efficient with an explicit model and effort. Use before spawning any subagent, Explore/Plan agent, fork, workflow or parallel worker; when the user wants token-efficient or cheaper work ("token verimli çalış", "token efficient", "token tasarrufu"); when a usage limit or quota is filling up ("limitim doluyor", "kota", "weekly is at 84%"); for a second opinion or cross-provider review ("ikinci görüş", "çapraz review", "Codex'e sor", "ask Gemini"); or to install or update lanes.
+when_to_use: Typical requests - "token efficent çalış", "bunu ucuza yap", "Claude haftalık limitim %84, işi dağıt", "bu diff'i başka bir modele review ettir", "Gemini'ye ikinci görüş sor", "spread this across my subscriptions", "get this reviewed by another provider", "run these in parallel without burning my Opus quota", "lanes kur", "update lanes".
+allowed-tools: Bash(lanes *)
 ---
+
 
 # Lanes
 
@@ -32,6 +35,34 @@ over to a different model, so an unset `effort` falls back to that model's defau
 | Fable | `haiku`/low | `sonnet`/medium | `opus`/high | you |
 | Sonnet | `haiku`/low | inline (sonnet is the session) | inline | you |
 
+## Collect every lane
+
+Your session must hear back from every lane it starts. `--bg` detaches the job from your harness: nothing will
+notify you when it ends. Start lanes one of these two ways, and never end a turn with a lane that is neither:
+
+| Your harness | Start the lane | The result reaches you via |
+|---|---|---|
+| Claude Code (or any harness whose background shell notifies you on exit) | your Bash tool with `run_in_background: true`, running `lanes run ...` **without** `--bg` (parallel lanes: one background command each) | the harness's completion notification; then read that command's output |
+| Codex, Cursor, agy, or any harness without such notifications | one lane: `lanes run ...` without `--bg` (it blocks and returns the answer). Several in parallel: `lanes run ... --bg` per job, each prints a job id | the blocking `lanes run` itself; for `--bg` jobs, `lanes wait <id> [<id> ...]` as your very next command |
+
+`lanes wait` is a command you run, not something that wakes you: do not end the turn or answer the user between
+starting `--bg` jobs and waiting for them.
+
+## Red Flags — STOP and re-plan
+
+- An `Agent(`/`agent(`/`spawn_agent(`/subagent call with no `model` or no `effort`
+- `subagent_type: Explore|Plan` without `model`
+- The session model's name or family alias in any spawn
+- A spawn labelled "synthesis", "final report", "root cause verdict"
+- Delegating with no `lanes pick` (or `lanes discover`) before it, or no Plan line
+- A review whose pool equals the pool that wrote the diff
+- A write lane without `--worktree`, or a write called done from the exit code
+- Ending a turn after `lanes run --bg` without `lanes wait` on that id, or expecting a notification for a `--bg` job
+- `--allow-spend` without the user's yes, or an `approval=True` row run silently
+- More than 4 T2 agents, or a verifier per finding instead of per hypothesis
+- A brief without an output schema or without the `file:line` requirement
+- A fan-out that ends without a ledger total
+
 ## Decide Before You Spawn (stop at the first rung that holds)
 
 0. **Script it.** Counting, linting, diffing, schema checks, grep inventories →
@@ -61,17 +92,6 @@ lanes run --pool P --cli C [--provider V] --model M --effort E --mode write --wo
 lanes wait <id> [<id> ...]           # collects --bg jobs: one blocking call for all of them; never poll in a loop
 lanes mark <id> used|reworked|wasted # outcome into the ledger; `lanes ledger` prints totals
 ```
-
-**Collect every lane — your session must hear back.** `--bg` detaches the job from your harness: nothing will
-notify you when it ends. Start lanes one of these two ways, and never end a turn with a lane that is neither:
-
-| Your harness | Start the lane | The result reaches you via |
-|---|---|---|
-| Claude Code (or any harness whose background shell notifies you on exit) | your Bash tool with `run_in_background: true`, running `lanes run ...` **without** `--bg` (parallel lanes: one background command each) | the harness's completion notification; then read that command's output |
-| Codex, Cursor, agy, or any harness without such notifications | one lane: `lanes run ...` without `--bg` (it blocks and returns the answer). Several in parallel: `lanes run ... --bg` per job, each prints a job id | the blocking `lanes run` itself; for `--bg` jobs, `lanes wait <id> [<id> ...]` as your very next command |
-
-`lanes wait` is a command you run, not something that wakes you: do not end the turn or answer the user between
-starting `--bg` jobs and waiting for them.
 
 **Plan line.** Before any delegation, fill this in and show it. An empty slot
 means you have not decided yet:
@@ -209,18 +229,3 @@ first. Limits: 20 concurrent subagents; workflow warns above 25 agents or
 | "`lanes discover` is slow, I will guess the quotas" | One 20-60 s call, then cached 15 min. Guessed quotas route the bulk to the wrong pool. |
 | "I started it with `--bg`, I will be notified when it finishes" | `--bg` detaches from the harness; no notification ever comes. In Claude Code run `lanes run` (no `--bg`) as a background Bash command; elsewhere `lanes wait` before ending the turn. |
 | "It failed, so I will quietly do it myself" | Say it failed, take the next `pick` row, mark the dead one `wasted`. Doing it inline spends the top model. |
-
-## Red Flags — STOP and re-plan
-
-- An `Agent(`/`agent(`/`spawn_agent(`/subagent call with no `model` or no `effort`
-- `subagent_type: Explore|Plan` without `model`
-- The session model's name or family alias in any spawn
-- A spawn labelled "synthesis", "final report", "root cause verdict"
-- Delegating with no `lanes pick` (or `lanes discover`) before it, or no Plan line
-- A review whose pool equals the pool that wrote the diff
-- A write lane without `--worktree`, or a write called done from the exit code
-- Ending a turn after `lanes run --bg` without `lanes wait` on that id, or expecting a notification for a `--bg` job
-- `--allow-spend` without the user's yes, or an `approval=True` row run silently
-- More than 4 T2 agents, or a verifier per finding instead of per hypothesis
-- A brief without an output schema or without the `file:line` requirement
-- A fan-out that ends without a ledger total

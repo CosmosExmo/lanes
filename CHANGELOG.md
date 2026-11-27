@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0 — 2026-11-27
+
+- The skill triggers more reliably. New description in the third person, key use first, with Turkish phrases ("token verimli çalış", "ikinci görüş", "Codex'e sor") and example requests in `when_to_use`.
+- Claude Code loads the repo as a skills-directory plugin with two hooks: a prompt hint that points the agent at the skill on matching English or Turkish prompts (on by default, `prompt_hint`), and an agent guard that refuses an `Agent`/`Task` call without `model` and `effort` (off by default, `agent_guard`).
+- SKILL.md puts The Rule, collecting every lane and the red flags first, so they survive context compaction.
+- `allowed-tools: Bash(lanes *)` pre-approves the `lanes` command while the skill runs.
+- Trigger-rate eval suite in `evals/` for `claude plugin eval`.
+
 ## 2.0.2 — 2026-11-26
 
 - Lane results always reach the orchestrating session: SKILL.md now says how to start a lane per harness (Claude Code: `lanes run` without `--bg` as a background Bash command, so the harness notifies you; elsewhere a blocking `lanes run`, or `--bg` followed immediately by `lanes wait`).

@@ -45,6 +45,20 @@ lanes ledger --since 1d                          # totals
 
 `pick` ranks lanes by remaining quota per hour to reset (use it or lose it), drops lanes that cannot fit the job, and lists lanes that need approval to spend last, marked `approval=True`.
 
+## Hooks (Claude Code)
+
+Linked into a Claude Code skills directory, the repo also loads as a skills-directory plugin (`lanes@skills-dir`) with
+two hooks, both switchable in the config file:
+
+- **Prompt hint** (on by default): a prompt that asks for token-efficient work, quota relief, a second opinion or a
+  cross-provider review, in English or Turkish, gets one added line telling the agent to load the `lanes` skill.
+- **Agent guard** (off by default): refuses an `Agent`/`Task` call that does not name both `model` and `effort`, with a reason
+  the agent can act on. Forks are exempt.
+
+Other harnesses can run the prompt hint too, if their prompt-submit hook passes the prompt as `prompt` in its stdin
+JSON and adds the hook's output to the context, as Claude Code does (Codex, Qwen and Kimi follow that contract): register
+`python3 <repo>/hooks/lanes_hook.py hint` as that hook.
+
 ## Supported CLIs
 
 | CLI | Pools it reaches | Quota source | Verified version | Notes |
@@ -107,6 +121,8 @@ Optional file `~/.config/lanes/config.json` (override with `$LANES_CONFIG`):
 | `cursor_read_quota` | `false` | Allow reading Cursor usage with the local token |
 | `agy_allow_shell` | `false` | Allow agy lanes to run shell commands |
 | `orchestrator_reserve_pct` | `3` | Share of your own pool's window held back for synthesis |
+| `prompt_hint` | `true` | Point the agent at the skill on matching prompts (hook) |
+| `agent_guard` | `false` | Refuse Claude Code `Agent`/`Task` calls without `model` and `effort` (hook) |
 
 State lives in `~/.cache/lanes` (override with `$LANES_CACHE`): `inventory.json`, `ledger.jsonl`, `jobs/<id>/`, `worktrees/<id>/`.
 
@@ -117,10 +133,18 @@ lanes update            # git pull --ff-only
 lanes selftest          # offline checks; add --live for one cheap probe per verified CLI
 ```
 
+## When the skill does not trigger
+
+Claude Code lists skill descriptions within a budget of about 1% of the context window. With many skills installed it
+drops the descriptions of the least-used ones, and `lanes` may show by name only, so a request like "work
+token-efficiently" no longer matches it. The prompt hint covers this. You can also raise `skillListingBudgetFraction`
+in your Claude Code settings, turn off skills you do not use (`/skill-doctor` lists them), or type `/lanes`.
+
 ## Development
 
 ```
 python3 -m unittest discover -s tests -v
+claude plugin eval . --ablation none --runs 3     # trigger-rate suite in evals/ (uses your Claude plan)
 ```
 
 `adapters.json` (per-CLI flags, run templates, provider routing) and `capabilities.json` (model strengths) are data: new CLI versions and models are edits there, not code. See `SKILL.md` for the agent-facing rules and `harnesses.md` for per-harness details.
