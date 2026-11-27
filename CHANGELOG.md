@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.2 — 2026-11-27
+
+- `lanes update` prints the CHANGELOG entries since your installed version, and the skill tells the agent to offer you any new option, so "update lanes" is all you need to say.
+
 ## 2.1.1 — 2026-11-27
 
 - The prompt hint is now off by default, like the agent guard: nothing changes for you on update until you turn it on with `"prompt_hint": true` in `~/.config/lanes/config.json` (INSTALL.md asks during install).

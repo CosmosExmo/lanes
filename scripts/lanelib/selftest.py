@@ -100,8 +100,32 @@ def install(repo: Path, bin_only=False, dry=False) -> list:
     return [state.redact(x) for x in acts if x]
 
 
+def _vtuple(v):
+    return tuple(int(x) for x in v.split(".")) if _VER.fullmatch(v or "") else None
+
+
+def changes_since(changelog: str, old: str) -> str:
+    """CHANGELOG sections (`## X.Y.Z ...`) newer than `old`; "" if none or `old` is unreadable."""
+    base = _vtuple(old)
+    if base is None:
+        return ""
+    keep = []
+    for sec in re.split(r"(?m)^(?=## )", changelog):
+        m = re.match(r"## (\d+(?:\.\d+)+)", sec)
+        if m and _vtuple(m.group(1)) > base:
+            keep.append(sec.rstrip())
+    return "\n\n".join(keep)
+
+
 def update(repo: Path) -> int:
     import sys
+
+    def version():
+        try:
+            return (repo / "VERSION").read_text().strip()
+        except OSError:
+            return ""
+    old = version()
     try:
         r = subprocess.run(["git", "-C", str(repo), "pull", "--ff-only"], capture_output=True, text=True)
     except OSError:
@@ -110,4 +134,14 @@ def update(repo: Path) -> int:
     if r.returncode:
         sys.stderr.write(state.redact(r.stdout + r.stderr))
         return 2
+    new = version()
+    if new == old:
+        print(f"lanes is up to date ({new})")
+        return 0
+    print(f"lanes updated {old or '?'} -> {new}. What changed:\n")
+    try:
+        print(changes_since((repo / "CHANGELOG.md").read_text(), old) or "(see CHANGELOG.md)")
+    except OSError:
+        print("(see CHANGELOG.md)")
+    print()
     return 0

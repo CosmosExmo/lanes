@@ -102,4 +102,5 @@ Tell the user, in their language:
 - Restart agent sessions so the `lanes` skill loads (already-open sessions do not see new skills).
 - From then on they just ask their agent, for example: "distribute this work with lanes", "get this diff reviewed by
   another provider", "my Claude limit is filling up, spread the load", "ask Gemini for a second opinion".
-- To update later, they ask their agent to "update lanes" (it runs `lanes update`, which pulls and re-checks).
+- To update later, they ask their agent to "update lanes". It runs `lanes update`, which pulls, shows what changed,
+  offers any new options and re-checks.

@@ -98,7 +98,7 @@ python3 scripts/lanes.py install               # do it
 | `lanes ledger [--since 1d]` | Ledger totals |
 | `lanes selftest [--live]` | Check installs and adapter flags; `--live` runs one cheap probe per verified CLI |
 | `lanes install [--bin-only] [--dry-run]` | Link the command and the skill |
-| `lanes update` | `git pull --ff-only` in the repo |
+| `lanes update` | `git pull --ff-only` in the repo, then show what changed since your version |
 
 Exit codes: 0 ok; 2 usage/environment error or wait timeout; 3 nested delegation refused; 4 approval needed; 5 selftest failure; 6 job failed, hit a limit, made no changes, or was `partial` (edited, then failed). Most commands take `--json`.
 
@@ -129,7 +129,7 @@ State lives in `~/.cache/lanes` (override with `$LANES_CACHE`): `inventory.json`
 ## Updating
 
 ```
-lanes update            # git pull --ff-only
+lanes update            # git pull --ff-only, then prints the CHANGELOG entries since your version
 lanes selftest          # offline checks; add --live for one cheap probe per verified CLI
 ```
 

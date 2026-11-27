@@ -82,7 +82,9 @@ starting `--bg` jobs and waiting for them.
 ## Lanes in other pools
 
 Run `lanes` if it is on PATH, otherwise `python3 <skill dir>/scripts/lanes.py`
-(`lanes install --bin-only` puts it on PATH). Python 3, stdlib only. To update: `lanes update`; to install for a new user, follow `INSTALL.md`.
+(`lanes install --bin-only` puts it on PATH). Python 3, stdlib only. To update: `lanes update`. It prints what changed since the installed version: tell the user
+in a few lines, offer every new option it names, and change `~/.config/lanes/config.json` only after they agree.
+Remind them to restart their agent sessions. To install for a new user, follow `INSTALL.md`.
 
 ```
 lanes discover                       # once per session: pools, billing, quota (cached 15 min). No model calls.
